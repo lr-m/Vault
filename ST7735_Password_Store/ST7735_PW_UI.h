@@ -5,9 +5,11 @@
 #include <Colours.h>
 #include <AES.h>
 #include <IR_Codes.h>
+#include "EEPROM_Manager.h"
 
 #define PASSWORDS_PER_PAGE 9
 #define PASSWORD_SEP 16
+#define EEPROM_PW_ENTRY_SIZE 96 // Each entry takes up 96 bytes (IN HEX)
 
 #define PASSWORD_START_Y 18
 
@@ -58,13 +60,13 @@ class ST7735_PW_Menu
 class Password_Manager
 {
     public:
-        Password_Manager(Adafruit_ST7735*, AES128*, ST7735_PW_Keyboard*);
+        Password_Manager(Adafruit_ST7735*, AES128*, ST7735_PW_Keyboard*, EEPROM_Manager*);
         void display(); // Displays passwords and usernames on screen
         void interact(uint32_t*); // Allows user interaction
         void encrypt(char*, byte*); // Encrypts passed data and stores in aes_buffer
         void decrypt(byte*, char*); // Decrypts the passed data and stores in aes_buffer
         void setKey(char* key); // Saves the encryption key in key_bytes
-        void loadFrom(int position); // Loads and decrypts saved password from file and stores in Password_Entry instance
+        void load(int position); // Loads and decrypts saved password from file and stores in Password_Entry instance
         void save(Password_Entry*); // Saves encrypted Password_Entry to SD card at given position
         boolean escaped = false;
         void setStage(int);
@@ -75,6 +77,7 @@ class Password_Manager
         ST7735_PW_Keyboard* keyboard;
         byte key_bytes[16];
         int stage = 0; // 0 = display names, 1 = display selected password/username, 2 = add name, 3 = add email, 4 = add password
+        EEPROM_Manager* eeprom_manager;
 
         int password_count = 0;
         Password_Entry* entries;

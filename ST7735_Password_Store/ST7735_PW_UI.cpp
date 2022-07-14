@@ -129,20 +129,22 @@ void ST7735_PW_Menu::display(){
 }
 
 // Password manager class functions
-Password_Manager::Password_Manager(Adafruit_ST7735* display, AES128* aes, ST7735_PW_Keyboard* keyboard){
+Password_Manager::Password_Manager(Adafruit_ST7735* display, AES128* aes, ST7735_PW_Keyboard* keyboard, EEPROM_Manager* eeprom_manager){
     this->tft = display;
     this->aes128 = aes;
 
     this->entries = (Password_Entry*) malloc(sizeof(Password_Entry) * 50);
     this->keyboard = keyboard;
 
-    for (int i = 0; i < 50; i++){
-        entries[i].setName("TEST NAME");
-        entries[i].setPassword("TEST PASSWORD 1");
-        entries[i].setEmail("TEST EMAIL 1");
-    }
+    this->eeprom_manager = eeprom_manager;
 
-    this->password_count = 50;
+    // for (int i = 0; i < 50; i++){
+    //     entries[i].setName("TEST NAME");
+    //     entries[i].setPassword("TEST PASSWORD 1");
+    //     entries[i].setEmail("TEST EMAIL 1");
+    // }
+
+    // this->password_count = 50;
 }
 
 void Password_Manager::setStage(int stage){
@@ -333,6 +335,11 @@ void Password_Manager::encrypt(char* data, byte* encrypted){
     for (int i = 0; i < 32; i += 16){
         aes128->encryptBlock(encrypted + i, data_bytes + i);
     }
+    
+    for (int i = 0; i < 32; i++){
+        Serial.print(encrypted[i], HEX);
+        Serial.print(' ');
+    }
 }
 
 // Decrypt the passed data (loaded from SD), store in aes_buffer for storage in entry
@@ -372,25 +379,104 @@ void Password_Manager::setKey(char* key){
 }
 
 // Starting from position passed, read and decrypt password entry into entry class
-void Password_Manager::loadFrom(int position){
+void Password_Manager::load(int position){
+    char decrypted[32];
+    byte encrypted[32];
+    int write_address = position;
 
+    // Load the name from eeprom and decrypt
+    for (int i = 0; i < 32; i++){
+        encrypted[i] = this->eeprom_manager->readExternalEEPROM(write_address);
+        Serial.print(this->eeprom_manager->readExternalEEPROM(write_address), HEX);
+        Serial.print(' ');
+        write_address++;
+    }
+    Serial.println();
+
+    this->decrypt(encrypted, decrypted);
+
+    Serial.println(decrypted);
+
+    memcpy(entries[this->password_count].getName(), decrypted, 32);
+
+    // Load the username from eeprom and decrypt
+    for (int i = 0; i < 32; i++){
+        encrypted[i] = this->eeprom_manager->readExternalEEPROM(write_address);
+        Serial.print(this->eeprom_manager->readExternalEEPROM(write_address), HEX);
+        Serial.print(' ');
+        write_address++;
+    }
+    Serial.println();
+
+    this->decrypt(encrypted, decrypted);
+
+    Serial.println(decrypted);
+
+    memcpy(entries[this->password_count].getEmail(), decrypted, 32);
+
+    // Load the password name from eeprom and decrypt
+    for (int i = 0; i < 32; i++){
+        encrypted[i] = this->eeprom_manager->readExternalEEPROM(write_address);
+        Serial.print(this->eeprom_manager->readExternalEEPROM(write_address), HEX);
+        Serial.print(' ');
+        write_address++;
+    }
+    Serial.println();
+
+    this->decrypt(encrypted, decrypted);
+
+    Serial.println(decrypted);
+
+    memcpy(entries[this->password_count].getPassword(), decrypted, 32);
+
+    this->password_count++;
 }
 
 // Save the passed password entry to the passed file in the passed position
 void Password_Manager::save(Password_Entry* entry){
+    Serial.println("SAVING ENTRY...");
+    // Get password count from EEPROM and increment
+    byte count = this->eeprom_manager->readExternalEEPROM(0);
+    this->eeprom_manager->writeExternalEEPROM(0, count+1);
+
+    int write_address = count*(EEPROM_PW_ENTRY_SIZE+2)+1; // Add 2 for type and size bytes
+
+    Serial.print("COUNT: ");
+    Serial.println(count);
+
+    // Write the size of this entry
+    this->eeprom_manager->writeExternalEEPROM(write_address, EEPROM_PW_ENTRY_SIZE);
+    write_address++;
+
+    // Write the type
+    this->eeprom_manager->writeExternalEEPROM(write_address, 0);
+    write_address++;   
+
+    // Write the encrypted name
     byte encrypted[32];
     this->encrypt(entry->getName(), encrypted);
 
     for (int i = 0; i < 32; i++){
-        Serial.print(encrypted[i], HEX);
-        Serial.print(' ');
+        this->eeprom_manager->writeExternalEEPROM(write_address, encrypted[i]);
+        write_address++;
+        Serial.println(write_address);
     }
-    Serial.println();
 
-    char original[32];
-    this->decrypt(encrypted, original);
+    // Write the encrypted email/username
+    this->encrypt(entry->getEmail(), encrypted);
 
-    Serial.println(original);
+    for (int i = 0; i < 32; i++){
+        this->eeprom_manager->writeExternalEEPROM(write_address, encrypted[i]);
+        write_address++;
+    }
+
+    // Write the password to the eeprom
+    this->encrypt(entry->getPassword(), encrypted);
+
+    for (int i = 0; i < 32; i++){
+        this->eeprom_manager->writeExternalEEPROM(write_address, encrypted[i]);
+        write_address++;
+    }
 }
 
 // Password entry class functions

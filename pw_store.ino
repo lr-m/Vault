@@ -9,6 +9,7 @@
 #include <ST7735_PW_UI.h>
 #include <EEPROM.h>
 #include <colours.h>
+#include <EEPROM_Manager.h>
 
 // Define PIN config
 #define TFT_DC    D8
@@ -33,6 +34,7 @@ Adafruit_ST7735 tft =
 
 ST7735_PW_Menu* menu;
 Password_Manager* password_manager;
+EEPROM_Manager* eeprom_manager;
 
 IRrecv irrecv(RECV_PIN);
 
@@ -54,9 +56,13 @@ void setup(){
   menu = (ST7735_PW_Menu*) malloc(sizeof(ST7735_PW_Menu));
   *menu = ST7735_PW_Menu(&tft);
 
+  // Initialise external eeprom manager
+  eeprom_manager = (EEPROM_Manager*) malloc(sizeof(EEPROM_Manager));
+  *eeprom_manager = EEPROM_Manager();
+
   // Initialise password manager
   password_manager = (Password_Manager*) malloc(sizeof(Password_Manager));
-  *password_manager = Password_Manager(&tft, &aes128, keyboard);
+  *password_manager = Password_Manager(&tft, &aes128, keyboard, eeprom_manager);
 
   password = (char*) malloc(sizeof(char) * MAX_PASSWORD_LENGTH);
 
@@ -72,9 +78,9 @@ void setup(){
   
   irrecv.enableIRIn(); // Enable IR reciever
 
-  ///////////////////////////////////////////
-  // Load saved stuff from external EEPROM //
-  ///////////////////////////////////////////
+//  for (int i = 0; i < 250; i++){
+//    eeprom_manager->writeExternalEEPROM(i, 255);
+//  }
   
   tft.initR(INITR_BLACKTAB); // Init ST7735S chip
   tft.fillScreen (SCHEME_BG);
@@ -135,6 +141,8 @@ void loop(){
           password_length = keyboard->getCurrentInputLength();
 
           password_manager->setKey(password);
+
+          loadCredentialsFromEEPROM();
 
           tft.fillScreen(SCHEME_BG);
 
@@ -248,4 +256,41 @@ void printEEPROM(){
       Serial.print(' ');
   }
   Serial.println();
+}
+
+void loadCredentialsFromEEPROM(){
+  for (int i = 0; i < 250; i++){
+    Serial.print(eeprom_manager->readExternalEEPROM(i), HEX);
+    Serial.print(' ');
+  }
+  Serial.println();
+  
+  int count = eeprom_manager->readExternalEEPROM(0);
+  Serial.println("LOADING CREDENTIALS...");
+
+  if (count > 100){
+    eeprom_manager->writeExternalEEPROM(0, 0);
+    return;
+  }
+
+  Serial.println(count);
+  int type;
+  int size;
+  int read_address = 1;
+  for (int i = 0; i < count; i++){
+    size = eeprom_manager->readExternalEEPROM(read_address);
+    type = eeprom_manager->readExternalEEPROM(read_address+1);
+    read_address+=2;
+
+    Serial.println(type);
+    Serial.println(size);
+
+    if (type == 0){
+      Serial.print("Loading from address:");
+      Serial.println(read_address);
+      password_manager->load(read_address);
+    }
+
+    read_address+=size;
+  }
 }
