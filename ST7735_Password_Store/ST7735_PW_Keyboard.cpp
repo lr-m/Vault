@@ -29,6 +29,7 @@ ST7735_PW_Keyboard::ST7735_PW_Keyboard(Adafruit_ST7735* display)
 	current_string = (char*) malloc(sizeof(char) * (MAX_INPUT_LENGTH + 1));
 	current_string[0] = 0;
 	enter_pressed = 0;
+	length_limit = MAX_INPUT_LENGTH;
 	
 	last_mode = 0;
 	last_key = 0;
@@ -77,10 +78,9 @@ ST7735_PW_Keyboard::ST7735_PW_Keyboard(Adafruit_ST7735* display)
 	char* key_nums[10] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
 	
 	for (int i = 0; i < 10; i++){
-		numbers[i] = Key(tft, map(i, 0, 9, EDGE_BORDER + NORMAL_KEY_WIDTH / 2, 
-			tft -> width() - (3 * NORMAL_KEY_WIDTH / 2) - EDGE_BORDER), 
-			tft -> height() - (KEY_HEIGHT + 4), NORMAL_KEY_WIDTH, 
-			KEY_HEIGHT, key_nums[i], 0);
+		numbers[i] = Key(tft, EDGE_BORDER + i * (NORMAL_KEY_WIDTH+1), 
+				tft -> height() - 4 * (KEY_HEIGHT + 4), NORMAL_KEY_WIDTH, 
+				KEY_HEIGHT, key_nums[i], 0);
 	}
 	
 	// Define the specials
@@ -89,26 +89,24 @@ ST7735_PW_Keyboard::ST7735_PW_Keyboard(Adafruit_ST7735* display)
 		"\\", "]", "^", "_", "`", "{", "|", "}", "~"};
 	current_letter = 0;
 	for (int i = 0; i < 11; i++){
-		specials[current_letter] = Key(tft, map(i, 0, 10, EDGE_BORDER, 
-			tft -> width() - NORMAL_KEY_WIDTH - EDGE_BORDER), 
-			tft -> height() / 2 + EDGE_BORDER, NORMAL_KEY_WIDTH, KEY_HEIGHT, 
-			key_specials[current_letter], 0);
+		specials[current_letter] = Key(
+			tft, EDGE_BORDER + i * (SPECIAL_KEY_WIDTH+1), 
+			tft -> height() - 4 * (KEY_HEIGHT + 4), SPECIAL_KEY_WIDTH, 
+			KEY_HEIGHT,	key_specials[current_letter], 0);
 		current_letter++;
 	}
 	
 	for (int i = 0; i < 11; i++){
-		specials[current_letter] = Key(tft, map(i, 0, 10, EDGE_BORDER, 
-			tft -> width() - NORMAL_KEY_WIDTH - EDGE_BORDER), 
-			tft -> height() / 2 + 2*EDGE_BORDER + KEY_HEIGHT, NORMAL_KEY_WIDTH, 
+		specials[current_letter] = Key(tft, EDGE_BORDER + i * (SPECIAL_KEY_WIDTH+1), 
+			tft -> height() - 3 * (KEY_HEIGHT + 4), SPECIAL_KEY_WIDTH, 
 			KEY_HEIGHT, key_specials[current_letter], 0);
 		current_letter++;
 	}
 	
 	for (int i = 0; i < 10; i++){
-		specials[current_letter] = Key(tft, map(i, 0, 9, 
-			EDGE_BORDER + NORMAL_KEY_WIDTH / 2, 
-			tft -> width() - (3 * NORMAL_KEY_WIDTH/2) - EDGE_BORDER), 
-			tft -> height() / 2 + 3 * EDGE_BORDER + 2 * KEY_HEIGHT, NORMAL_KEY_WIDTH, 
+		specials[current_letter] = Key(tft, 
+			EDGE_BORDER + SPECIAL_KEY_WIDTH/2 + i * (SPECIAL_KEY_WIDTH+1), 
+			tft -> height() - 2 * (KEY_HEIGHT + 4), SPECIAL_KEY_WIDTH, 
 			KEY_HEIGHT, key_specials[current_letter], 0);
 		current_letter++;
 	}
@@ -167,6 +165,10 @@ void ST7735_PW_Keyboard::reset(){
 	enter_pressed = 0;
 }
 
+void ST7735_PW_Keyboard::setLengthLimit(int limit){
+	this->length_limit = limit;
+}
+
 void ST7735_PW_Keyboard::end(){
 	current_input_length = 0;
 	free(current_string);
@@ -190,7 +192,7 @@ int ST7735_PW_Keyboard::getCurrentInputLength(){
 // Performs the action of the currently selected key
 void ST7735_PW_Keyboard::press(){
 	if (selected -> action == "Space"){
-		if (current_input_length < MAX_INPUT_LENGTH){
+		if (current_input_length < this->length_limit){
 			// Add space to current string
 			current_string[current_input_length + 1] = 0;
 			current_string[current_input_length] = ' ';
@@ -207,7 +209,7 @@ void ST7735_PW_Keyboard::press(){
 		if (current_string[0] != 0)
 			enter_pressed = 1;
 	} else {
-		if (current_input_length < MAX_INPUT_LENGTH){
+		if (current_input_length < this->length_limit){
 			// Add pressed key to current string
 			current_string[current_input_length + 1] = 0;
 			if (mode == 1){
@@ -319,16 +321,17 @@ void ST7735_PW_Keyboard::setMode(int new_mode){
 void ST7735_PW_Keyboard::displayPrompt(char* prompt)
 {
 	tft -> fillRect(0, 0, tft -> width(), tft -> height() / 2, SCHEME_BG);
+	tft -> fillRect(0, 0, tft->width(), 12, SCHEME_MAIN);
 	tft -> setTextColor(SCHEME_TEXT_LIGHT);
-	tft -> setCursor(0, 0);
+	tft -> setCursor(2, 2);
 	tft -> print(prompt);
 }
 
 // Displays the current string that has been entered by the user
 void ST7735_PW_Keyboard::displayCurrentString(){
-	tft -> fillRect(0, 10, tft -> width(), tft -> height() / 6, SCHEME_BG);
+	tft -> fillRect(0, 15, tft -> width(), 40, SCHEME_BG);
 	tft -> setTextColor(SCHEME_TEXT_LIGHT);
-	tft -> setCursor(0, 10);
+	tft -> setCursor(0, 15);
 	tft -> print(current_string);
 }
 
@@ -514,7 +517,7 @@ void Key::display(int mode){
 
 // Display the key as selected
 void Key::displaySelected(int mode){
-	tft -> fillRoundRect(x, y, w, h, 2, SCHEME_SECONDARY);
+	tft -> fillRoundRect(x, y, w, h, 2, ST77XX_WHITE);
 	tft -> setCursor(x + 3, y + 2);
 	tft -> setTextColor(SCHEME_TEXT_DARK);
 	if (mode == 1 && bottom_key == 0){

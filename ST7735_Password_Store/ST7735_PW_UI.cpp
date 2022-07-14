@@ -16,7 +16,7 @@ void ST7735_PW_Menu_Item::display(int position){
 
 void ST7735_PW_Menu_Item::displaySelected(int position){
     tft->setCursor(10, 7 + position*20);
-    tft->fillRoundRect(5, 5 + position*20 - 2, tft->width()-30, 14, 4, SCHEME_SECONDARY);
+    tft->fillRoundRect(5, 5 + position*20 - 2, tft->width()-30, 14, 4, ST77XX_WHITE);
     tft->setTextColor(SCHEME_BG);
     tft->print(this->getTitle());
 }
@@ -31,7 +31,7 @@ void ST7735_PW_Menu_Item::displayAdd(int position){
 
 void ST7735_PW_Menu_Item::displayAddSelected(int position){
     tft->setCursor(tft->width()-15, 7 + position*20);
-    tft->fillRoundRect(tft->width()-20, 5 + position*20 - 2, 14, 14, 4, SCHEME_SECONDARY);
+    tft->fillRoundRect(tft->width()-20, 5 + position*20 - 2, 14, 14, 4, ST77XX_WHITE);
     tft->setTextColor(SCHEME_BG);
     tft->print('+');
 }
@@ -155,21 +155,21 @@ void Password_Manager::setStage(int stage){
 void Password_Manager::display(){
     tft->fillScreen(SCHEME_BG);
     if (this->stage == 0){ // Display password names to select
+        tft->fillRect(0, 0, tft->width(), 13, SCHEME_MAIN);
+
         // Title
-        tft->setCursor(2, 2);
-        tft->setTextColor(SCHEME_SECONDARY);
+        tft->setCursor(3, 3);
+        tft->setTextColor(ST77XX_WHITE);
         tft->print("Passwords");
 
         // Page number
-        tft->setCursor(tft->width()-20, 2);
+        tft->setCursor(tft->width()-20, 3);
         tft->print(int(floor(selected_pw_index/PASSWORDS_PER_PAGE)) + 1);
         tft->print('/');
         tft->print(int(ceil((float) password_count/PASSWORDS_PER_PAGE)));
 
-        tft->drawLine(0, 13, tft->width(), 13, SCHEME_MAIN);
-
         int base = PASSWORD_START_Y + (selected_pw_index - this -> start_pw_display_index) * PASSWORD_SEP;
-        tft->fillTriangle(tft->width() - 10, base, tft->width() - 10, base + PASSWORD_SEP/2, tft->width() - 15, base + PASSWORD_SEP/4, SCHEME_MAIN);
+        tft->fillTriangle(tft->width() - 7, base, tft->width() - 7, base + PASSWORD_SEP / 2, tft->width() - 15, base + PASSWORD_SEP / 4, SCHEME_MAIN);
 
         tft->setTextColor(ST77XX_WHITE);
         for (int i = this->start_pw_display_index; 
@@ -178,31 +178,37 @@ void Password_Manager::display(){
             tft->println(this->entries[i].getName());
         }
     } else if (this->stage == 1){ // Display details of selected password
-        tft->setCursor(0, 2);
-        tft->setTextSize(2);
-        tft->setTextColor(SCHEME_SECONDARY);
+        tft->fillRect(0, 0, tft->width(), 13, SCHEME_MAIN);
+
+        // Title
+        tft->setTextSize(1);
+        tft->setCursor(3, 3);
+        tft->setTextColor(ST77XX_WHITE);
         tft->println(this->entries[this->selected_pw_index].getName());
 
-        tft->setTextSize(1);
+        tft->setCursor(5, 18);
         tft->setTextColor(SCHEME_MAIN);
-        tft->println("\nAccount:\n");
-        tft->setTextColor(SCHEME_SECONDARY);
+        tft->println("\nUsername/Email:\n");
+        tft->setTextColor(ST77XX_WHITE);
         tft->println(this->entries[this->selected_pw_index].getEmail());
 
         tft->setTextColor(SCHEME_MAIN);
         tft->println("\n\nPassword:\n");
-        tft->setTextColor(SCHEME_SECONDARY);
+        tft->setTextColor(ST77XX_WHITE);
         tft->println(this->entries[this->selected_pw_index].getPassword());
     } else if (this->stage == 2){ // Allow user to enter new password name
         keyboard->reset();
+        keyboard->setLengthLimit(16);
         keyboard->displayPrompt("Enter new name:");
         keyboard->display();
     } else if (this->stage == 3){ // Allow user to enter new email/username
         keyboard->reset();
+        keyboard->setLengthLimit(30);
         keyboard->displayPrompt("Enter new account:");
         keyboard->display();
     } else if (this->stage == 4){ // Allow user to enter new password
         keyboard->reset();
+        keyboard->setLengthLimit(30);
         keyboard->displayPrompt("Enter new password:");
         keyboard->display();
     }
@@ -214,25 +220,25 @@ void Password_Manager::interact(uint32_t* ir_data){
     if (this->stage == 0){ // Let user move up and down, and across pages of passwords
         if (*ir_data == IR_UP){ // Move cursor up
             int base = PASSWORD_START_Y + (selected_pw_index - this -> start_pw_display_index) * PASSWORD_SEP;
-            tft->fillTriangle(tft->width() - 10, base, tft->width() - 10, base + PASSWORD_SEP/2, tft->width() - 15, base + PASSWORD_SEP/4, SCHEME_BG);
+            tft->fillTriangle(tft->width() - 7, base, tft->width() - 7, base + PASSWORD_SEP / 2, tft->width() - 15, base + PASSWORD_SEP / 4, SCHEME_BG);
 
             selected_pw_index = selected_pw_index - 1 < start_pw_display_index 
                 ? start_pw_display_index + min(PASSWORDS_PER_PAGE - 1, this->password_count - start_pw_display_index - 1)
                 : selected_pw_index - 1;
 
             base = PASSWORD_START_Y + (selected_pw_index - this -> start_pw_display_index) * PASSWORD_SEP;
-            tft->fillTriangle(tft->width() - 10, base, tft->width() - 10, base + PASSWORD_SEP/2, tft->width() - 15, base + PASSWORD_SEP/4, SCHEME_MAIN);
+            tft->fillTriangle(tft->width() - 7, base, tft->width() - 7, base + PASSWORD_SEP / 2, tft->width() - 15, base + PASSWORD_SEP / 4, SCHEME_MAIN);
         } else if (*ir_data == IR_DOWN){ // Move cursor down
 
             int base = PASSWORD_START_Y + (selected_pw_index - this -> start_pw_display_index) * PASSWORD_SEP;
-            tft->fillTriangle(tft->width() - 10, base, tft->width() - 10, base + PASSWORD_SEP/2, tft->width() - 15, base + PASSWORD_SEP/4, SCHEME_BG);
+            tft->fillTriangle(tft->width() - 7, base, tft->width() - 7, base + PASSWORD_SEP / 2, tft->width() - 15, base + PASSWORD_SEP / 4, SCHEME_BG);
 
             selected_pw_index = selected_pw_index + 1 == min(start_pw_display_index + PASSWORDS_PER_PAGE, this->password_count)
                 ? start_pw_display_index
                 : selected_pw_index + 1;
 
             base = PASSWORD_START_Y + (selected_pw_index - this -> start_pw_display_index) * PASSWORD_SEP;
-            tft->fillTriangle(tft->width() - 10, base, tft->width() - 10, base + PASSWORD_SEP/2, tft->width() - 15, base + PASSWORD_SEP/4, SCHEME_MAIN);
+            tft->fillTriangle(tft->width() - 7, base, tft->width() - 7, base + PASSWORD_SEP / 2, tft->width() - 15, base + PASSWORD_SEP / 4, SCHEME_MAIN);
         } else if (*ir_data == IR_LEFT){ // Move cursor up
             if (password_count % PASSWORDS_PER_PAGE != 0){
                 start_pw_display_index = start_pw_display_index - PASSWORDS_PER_PAGE < 0 

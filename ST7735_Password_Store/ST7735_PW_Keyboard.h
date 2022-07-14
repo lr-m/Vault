@@ -13,6 +13,7 @@
 
 #define KEY_HEIGHT 11
 #define NORMAL_KEY_WIDTH 11
+#define SPECIAL_KEY_WIDTH 10
 #define EDGE_BORDER 4
 
 // #define KEYBOARD_BG_COLOUR 0x9DD3
@@ -23,7 +24,7 @@
 // #define PROMPT_BACKGROUND 0x9DD3
 // #define SELECTED_LETTER_COLOUR 0x0000
 // #define UNSELECTED_LETTER_COLOUR 0xFFFF
-#define MAX_INPUT_LENGTH 32
+#define MAX_INPUT_LENGTH 31
 
 class Key
 {
@@ -69,6 +70,7 @@ class ST7735_PW_Keyboard
 	void interact(uint32_t*);
 	void displayInstructions();
 	int getCurrentInputLength();
+	void setLengthLimit(int);
 
   // library-accessible "private" interface
   private:
@@ -86,6 +88,7 @@ class ST7735_PW_Keyboard
 	int enter_pressed; // Indicate if enter pressed
 	int last_mode; // Mode to return to when exiting tabs
 	int last_key; // Key last selected when entering tabs
+	int length_limit;
 };
 
 #endif
