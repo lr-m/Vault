@@ -50,6 +50,22 @@ byte EEPROM_Manager::readExternalEEPROM(int address)
   return rcvData;
 }
 
-void EEPROM_Manager::loadCredentialsFromEEPROM(){
+int EEPROM_Manager::getNextFreeAddress(int count){
+  // Get next free address
+  int write_address = 1;
+  int size;
+  int type;
 
+  for (int i = 0; i < count; i++){
+      size = this->readExternalEEPROM(write_address);
+      type = this->readExternalEEPROM(write_address+1);
+
+      if (type == 0){
+        write_address+=(size+2);
+      } else if (type == 1){
+        write_address += 2+(32 + size*32);
+      }
+  }
+
+  return write_address;
 }

@@ -13,6 +13,7 @@ class EEPROM_Manager{
         void writeExternalEEPROM(int, byte);
         byte readExternalEEPROM(int);
         void loadCredentialsFromEEPROM();
+        int getNextFreeAddress(int);
 };
 
 #endif
