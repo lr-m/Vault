@@ -91,6 +91,8 @@ class Password_Manager
         // For displaying passwords
         int start_pw_display_index = 0;
         int selected_pw_index = 0;
+
+        bool overwriting = false;
 };
 
 // Each entry stored in memory as | 0 | encrypted_name (32 bytes) |
@@ -105,6 +107,8 @@ class Password_Entry
         void setName(char*);
         void setEmail(char*);
         void setPassword(char*);
+
+        int start_address;
 
     private:
         char name[32];

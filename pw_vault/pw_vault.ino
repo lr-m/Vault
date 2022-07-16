@@ -83,7 +83,7 @@ void setup(){
   irrecv.enableIRIn(); // Enable IR reciever
 
   // For clearing the saved credentials
-//  i < 2000; i++){
+//  for (int i = 0; i < 2000; i++){
 //    eeprom_manager->writeExternalEEPROM(i, 255);
 //  }
   

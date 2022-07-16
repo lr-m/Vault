@@ -160,13 +160,19 @@ void Password_Manager::sortEntries(){
     for (int i = 0; i < password_count; ++i){
         for (int j = 0; j < password_count; ++j){
             if (entries[i].getName()[0] < entries[j].getName()[0]){
+                temp.start_address = entries[i].start_address;
+
                 memcpy(temp.getName(), entries[i].getName(), 32);
                 memcpy(temp.getEmail(), entries[i].getEmail(), 32);
                 memcpy(temp.getPassword(), entries[i].getPassword(), 32);
 
+                entries[i].start_address = entries[j].start_address;
+
                 memcpy(entries[i].getName(), entries[j].getName(), 32);
                 memcpy(entries[i].getEmail(), entries[j].getEmail(), 32);
                 memcpy(entries[i].getPassword(), entries[j].getPassword(), 32);
+
+                entries[j].start_address = temp.start_address;
 
                 memcpy(entries[j].getName(), temp.getName(), 32);
                 memcpy(entries[j].getEmail(), temp.getEmail(), 32);
@@ -225,6 +231,10 @@ void Password_Manager::display(){
         tft->println("\n\nPassword:\n");
         tft->setTextColor(ST77XX_WHITE);
         tft->println(this->entries[this->selected_pw_index].getPassword());
+
+        tft->setTextColor(SCHEME_MAIN);
+        tft->setCursor(0, tft->height()-15);
+        tft->println("Press * to overwrite");
     } else if (this->stage == 2){ // Allow user to enter new password name
         keyboard->reset();
         keyboard->setLengthLimit(16);
@@ -301,11 +311,21 @@ void Password_Manager::interact(uint32_t* ir_data){
             stage--;
             this->display();
         }
+
+        if (*ir_data == IR_ASTERISK){
+            stage = 2;
+            overwriting = true;
+            this->display();
+        }
     } else if (this->stage == 2){ // Allow user to enter new password name
         keyboard->interact(ir_data);
 
         if (keyboard -> enterPressed()){
-            memcpy(this->entries[password_count].getName(), keyboard->getCurrentInput(), 32);
+            if (!this->overwriting){
+                memcpy(this->entries[password_count].getName(), keyboard->getCurrentInput(), 32);
+            } else {
+                memcpy(this->entries[selected_pw_index].getName(), keyboard->getCurrentInput(), 32);
+            }
             stage++;
             this->display();
         }
@@ -313,7 +333,11 @@ void Password_Manager::interact(uint32_t* ir_data){
         keyboard->interact(ir_data);
 
         if (keyboard -> enterPressed()){
-            memcpy(this->entries[password_count].getEmail(), keyboard->getCurrentInput(), 32);
+            if (!this->overwriting){
+                memcpy(this->entries[password_count].getEmail(), keyboard->getCurrentInput(), 32);
+            } else {
+                memcpy(this->entries[selected_pw_index].getEmail(), keyboard->getCurrentInput(), 32);
+            }
             stage++;
             this->display();
         }
@@ -322,11 +346,17 @@ void Password_Manager::interact(uint32_t* ir_data){
 
         if (keyboard -> enterPressed()){
 
-            memcpy(this->entries[password_count].getPassword(), keyboard->getCurrentInput(), 32);
+            if (!this->overwriting){
+                memcpy(this->entries[password_count].getPassword(), keyboard->getCurrentInput(), 32);
 
-            password_count++;
+                password_count++;
 
-            this->save(&this->entries[password_count-1]);
+                this->save(&this->entries[password_count-1]);
+            } else {
+                memcpy(this->entries[selected_pw_index].getPassword(), keyboard->getCurrentInput(), 32);
+
+                this->save(&this->entries[selected_pw_index]);
+            }
 
             this->sortEntries();
 
@@ -402,6 +432,8 @@ void Password_Manager::load(int position){
     byte encrypted[32];
     int write_address = position;
 
+    entries[this->password_count].start_address = position; // For overwriting
+
     // Load the name from eeprom and decrypt
     for (int i = 0; i < 32; i++){
         encrypted[i] = this->eeprom_manager->readExternalEEPROM(write_address);
@@ -437,19 +469,29 @@ void Password_Manager::load(int position){
 
 // Save the passed password entry to the passed file in the passed position
 void Password_Manager::save(Password_Entry* entry){
-    // Get password count from EEPROM and increment
-    byte count = this->eeprom_manager->readExternalEEPROM(0);
-    this->eeprom_manager->writeExternalEEPROM(0, count+1);
+    int write_address;
 
-    int write_address = this->eeprom_manager->getNextFreeAddress(count);
+    if (!this->overwriting){ // Add new password
+        // Get password count from EEPROM and increment
+        byte count = this->eeprom_manager->readExternalEEPROM(0);
+        this->eeprom_manager->writeExternalEEPROM(0, count+1);
 
-    // Write the size of this entry
-    this->eeprom_manager->writeExternalEEPROM(write_address, EEPROM_PW_ENTRY_SIZE);
-    write_address++;
+        write_address = this->eeprom_manager->getNextFreeAddress(count);
 
-    // Write the type
-    this->eeprom_manager->writeExternalEEPROM(write_address, 0);
-    write_address++;   
+        // Write the size of this entry
+        this->eeprom_manager->writeExternalEEPROM(write_address, EEPROM_PW_ENTRY_SIZE);
+        write_address++;
+
+        // Write the type
+        this->eeprom_manager->writeExternalEEPROM(write_address, 0);
+        write_address++;   
+
+        entry->start_address = write_address;
+    } else { // For overwriting selected password
+        write_address = this->entries[selected_pw_index].start_address;
+
+        this->overwriting = false;
+    }
 
     // Write the encrypted name
     byte encrypted[32];
