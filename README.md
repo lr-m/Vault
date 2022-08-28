@@ -17,7 +17,7 @@ This aims to replicate something like LastPass without the need for an internet 
 - Can store usernames/emails and passwords up to 30 digits
 - Can store cryptocurrency wallet key phrases (number of phrases is selected)
 - Master password hashed with SHA256
-- All components of wallet entries and passwords encrypted with the master password
+- All components of wallet entries and passwords encrypted with the master password using AES-ECB, entries are padded with random characters so identical passwords have different outputs (ECB should be fine for this application as information about the plaintext cannot be derived from the encrypted version due to the fixed size and the random padding)
 - Can delete and overwrite existing entries
 - No internet connection necessary (tried to use an Arduino Nano but not enough flash space)
 
