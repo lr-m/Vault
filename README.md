@@ -13,6 +13,14 @@
 # VAult
 This aims to replicate something like LastPass without the need for an internet connection, lying between online storage and pen and paper. Hashing algorithms and encryption are used to store passwords securely on an external EEPROM, using an IR remote to access them/add new credentials. Access to the unencrypted external EEPROM is protected with a 'master password', which must be remembered.
 
+# Features
+- Can store usernames/emails and passwords up to 30 digits
+- Can store cryptocurrency wallet key phrases (number of phrases is selected)
+- Master password hashed with SHA256
+- All components of wallet entries and passwords encrypted with the master password
+- Can delete and overwrite existing entries
+- No internet connection necessary (tried to use an Arduino Nano but not enough flash space)
+
 # Components
 - ESP8266 NodeMCU v1.0
 - IR Receiver & Remote
@@ -33,5 +41,7 @@ This aims to replicate something like LastPass without the need for an internet 
   - Adafruit ST7735 & ST7789 Library : Version 1.9.3
   - IRremote : Version 3.3.0
   - Adafruit GFX Library : Version 1.11.3
-- Place the VAULT_Library directory in your Arduino library directory
+  - Crypto : Version 0.4.0
+  - sha256 from https://github.com/CSSHL/ESP8266-Arduino-cryptolibs
+- Place the VAULT_Library and the sha256 directory in your Arduino library directory
 - Open the VAULT_Sketch.ino file and install on the ESP8266 once configured as above
