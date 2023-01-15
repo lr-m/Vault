@@ -14,6 +14,7 @@ void ST7735_PW_Menu_Item::display(int position){
     tft->print(this->getTitle());
 }
 
+// Display key as selected
 void ST7735_PW_Menu_Item::displaySelected(int position){
     tft->setCursor(10, 70 + position*20);
     tft->fillRoundRect(5, 68 + position*20 - 2, tft->width()-30, 14, 4, ST77XX_WHITE);
@@ -29,6 +30,7 @@ void ST7735_PW_Menu_Item::displayAdd(int position){
     tft->print('+');
 }
 
+// Display add component as selected
 void ST7735_PW_Menu_Item::displayAddSelected(int position){
     tft->setCursor(tft->width()-15, 70 + position*20);
     tft->fillRoundRect(tft->width()-20, 68 + position*20 - 2, 14, 14, 4, ST77XX_WHITE);
@@ -36,6 +38,7 @@ void ST7735_PW_Menu_Item::displayAddSelected(int position){
     tft->print('+');
 }
 
+// Returns the button title
 const char* ST7735_PW_Menu_Item::getTitle(){
     return this->title;
 }
@@ -49,19 +52,23 @@ ST7735_PW_Menu::ST7735_PW_Menu(Adafruit_ST7735* display){
     this->items[1] = ST7735_PW_Menu_Item(display, "Wallet Keys");
 }
 
-char ST7735_PW_Menu::interact(uint32_t* ir_data, Password_Manager* password_manager, Wallet_Manager* wallet_manager){
+// Interacts with the menu using ir data
+char ST7735_PW_Menu::interact(uint32_t* ir_data, 
+    Password_Manager* password_manager, Wallet_Manager* wallet_manager){
   if (this->entered){
-    if (selected_index == 0){
+    if (selected_index == 0){ // Interact with password manager
         password_manager->interact(ir_data);
 
+        // Check if escaped from manager
         if (password_manager->escaped){
             password_manager->escaped = false;
             this->entered = false;
             return 1;
         }
-    } else if (selected_index == 1){
+    } else if (selected_index == 1){ // Interact with wallet manager
         wallet_manager->interact(ir_data);
 
+        // Check if escaped from manager
         if (wallet_manager->escaped){
             wallet_manager->escaped = false;
             this->entered = false;
@@ -70,7 +77,7 @@ char ST7735_PW_Menu::interact(uint32_t* ir_data, Password_Manager* password_mana
     }
   } else {
     // DOWN
-    if (*ir_data == IR_DOWN){
+    if (*ir_data == IR_DOWN){ // Go to entry below
         int old = selected_index;
         selected_index = selected_index + 1 == 2 ? 0 : selected_index + 1;
         this->items[old].display(old);
@@ -80,7 +87,7 @@ char ST7735_PW_Menu::interact(uint32_t* ir_data, Password_Manager* password_mana
     }
 
     // UP
-    if (*ir_data == IR_UP){
+    if (*ir_data == IR_UP){ // Go to entry above
         int old = selected_index;
         selected_index = selected_index - 1 == -1 ? 1 : selected_index - 1;
         this->items[old].display(old);
@@ -89,8 +96,8 @@ char ST7735_PW_Menu::interact(uint32_t* ir_data, Password_Manager* password_mana
         this->items[selected_index].addSelected = false;
     }
 
-    // UP
-    if (*ir_data == IR_LEFT || *ir_data == IR_RIGHT){
+    // LEFT/RIGHT
+    if (*ir_data == IR_LEFT || *ir_data == IR_RIGHT){ // Select add component
         this->items[selected_index].addSelected = !this->items[selected_index].addSelected;
 
         if (this->items[selected_index].addSelected){
@@ -139,20 +146,23 @@ void ST7735_PW_Menu::display(){
 }
 
 // Password manager class functions
-Password_Manager::Password_Manager(Adafruit_ST7735* display, AES128* aes, ST7735_PW_Keyboard* keyboard, EEPROM_Manager* eeprom_manager){
+Password_Manager::Password_Manager(Adafruit_ST7735* display, AES128* aes, 
+        ST7735_PW_Keyboard* keyboard, EEPROM_Manager* eeprom_manager){
     this->tft = display;
     this->aes128 = aes;
 
-    this->entries = (Password_Entry*) malloc(sizeof(Password_Entry) * 50);
+    this->entries = (Password_Entry*) malloc(sizeof(Password_Entry) * 20); // NEEDS FIXING
     this->keyboard = keyboard;
 
     this->eeprom_manager = eeprom_manager;
 }
 
+// Sets the currenty stage of the password manager
 void Password_Manager::setStage(int stage){
     this->stage = stage;
 }
 
+// Sorts the entries alphabetically (simple bubble sort)
 void Password_Manager::sortEntries(){
     Password_Entry temp;
     for (int i = 0; i < password_count; ++i){
@@ -163,18 +173,24 @@ void Password_Manager::sortEntries(){
                 memcpy(temp.getName(), entries[i].getName(), 32);
                 memcpy(temp.getEmail(), entries[i].getEmail(), 32);
                 memcpy(temp.getPassword(), entries[i].getPassword(), 32);
+                memcpy(temp.getEncryptedEmail(), entries[i].getEncryptedEmail(), 32);
+                memcpy(temp.getEncryptedPassword(), entries[i].getEncryptedPassword(), 32);
 
                 entries[i].start_address = entries[j].start_address;
 
                 memcpy(entries[i].getName(), entries[j].getName(), 32);
                 memcpy(entries[i].getEmail(), entries[j].getEmail(), 32);
                 memcpy(entries[i].getPassword(), entries[j].getPassword(), 32);
+                memcpy(entries[i].getEncryptedEmail(), entries[j].getEncryptedEmail(), 32);
+                memcpy(entries[i].getEncryptedPassword(), entries[j].getEncryptedPassword(), 32);
 
                 entries[j].start_address = temp.start_address;
 
                 memcpy(entries[j].getName(), temp.getName(), 32);
                 memcpy(entries[j].getEmail(), temp.getEmail(), 32);
                 memcpy(entries[j].getPassword(), temp.getPassword(), 32);
+                memcpy(entries[j].getEncryptedEmail(), temp.getEncryptedEmail(), 32);
+                memcpy(entries[j].getEncryptedPassword(), temp.getEncryptedPassword(), 32);
             }
         }
     }
@@ -201,12 +217,14 @@ void Password_Manager::display(){
         tft->print('/');
         tft->print(int(ceil((float) password_count/PASSWORDS_PER_PAGE)));
 
+        // Selected triangle indicator
         int base = PASSWORD_START_Y + (selected_pw_index - this -> start_pw_display_index) * PASSWORD_SEP;
         tft->fillTriangle(tft->width() - 7, base, tft->width() - 7, base + PASSWORD_SEP / 2, tft->width() - 15, base + PASSWORD_SEP / 4, SCHEME_MAIN);
 
+        // Display passwords
         tft->setTextColor(ST77XX_WHITE);
         for (int i = this->start_pw_display_index; 
-                i < min(this->password_count, this->start_pw_display_index + PASSWORDS_PER_PAGE); i++){
+                i < minval(this->password_count, this->start_pw_display_index + PASSWORDS_PER_PAGE); i++){
             tft->setCursor(5, PASSWORD_START_Y + (i - this->start_pw_display_index) * PASSWORD_SEP);
             tft->println(this->entries[i].getName());
         }
@@ -219,17 +237,20 @@ void Password_Manager::display(){
         tft->setTextColor(ST77XX_WHITE);
         tft->println(this->entries[this->selected_pw_index].getName());
 
+        // Username/email
         tft->setCursor(5, 18);
         tft->setTextColor(SCHEME_MAIN);
         tft->println("\nUsername/Email:\n");
         tft->setTextColor(ST77XX_WHITE);
         tft->println(this->entries[this->selected_pw_index].getEmail());
 
+        // Password
         tft->setTextColor(SCHEME_MAIN);
         tft->println("\n\nPassword:\n");
         tft->setTextColor(ST77XX_WHITE);
         tft->println(this->entries[this->selected_pw_index].getPassword());
 
+        // Interaction options
         tft->setTextColor(SCHEME_MAIN);
         tft->setCursor(0, tft->height()-12);
         tft->println("1:Overwrite");
@@ -261,7 +282,7 @@ void Password_Manager::interact(uint32_t* ir_data){
             tft->fillTriangle(tft->width() - 7, base, tft->width() - 7, base + PASSWORD_SEP / 2, tft->width() - 15, base + PASSWORD_SEP / 4, SCHEME_BG);
 
             selected_pw_index = selected_pw_index - 1 < start_pw_display_index 
-                ? start_pw_display_index + min(PASSWORDS_PER_PAGE - 1, this->password_count - start_pw_display_index - 1)
+                ? start_pw_display_index + minval(PASSWORDS_PER_PAGE - 1, this->password_count - start_pw_display_index - 1)
                 : selected_pw_index - 1;
 
             base = PASSWORD_START_Y + (selected_pw_index - this -> start_pw_display_index) * PASSWORD_SEP;
@@ -271,13 +292,13 @@ void Password_Manager::interact(uint32_t* ir_data){
             int base = PASSWORD_START_Y + (selected_pw_index - this -> start_pw_display_index) * PASSWORD_SEP;
             tft->fillTriangle(tft->width() - 7, base, tft->width() - 7, base + PASSWORD_SEP / 2, tft->width() - 15, base + PASSWORD_SEP / 4, SCHEME_BG);
 
-            selected_pw_index = selected_pw_index + 1 == min(start_pw_display_index + PASSWORDS_PER_PAGE, this->password_count)
+            selected_pw_index = selected_pw_index + 1 == minval(start_pw_display_index + PASSWORDS_PER_PAGE, this->password_count)
                 ? start_pw_display_index
                 : selected_pw_index + 1;
 
             base = PASSWORD_START_Y + (selected_pw_index - this -> start_pw_display_index) * PASSWORD_SEP;
             tft->fillTriangle(tft->width() - 7, base, tft->width() - 7, base + PASSWORD_SEP / 2, tft->width() - 15, base + PASSWORD_SEP / 4, SCHEME_MAIN);
-        } else if (*ir_data == IR_LEFT && this->password_count > 0){ // Move cursor up
+        } else if (*ir_data == IR_LEFT && this->password_count > 0){ // Scroll to previous page
             if (password_count % PASSWORDS_PER_PAGE != 0){
                 start_pw_display_index = start_pw_display_index - PASSWORDS_PER_PAGE < 0 
                     ? password_count - password_count % PASSWORDS_PER_PAGE 
@@ -288,9 +309,7 @@ void Password_Manager::interact(uint32_t* ir_data){
                     : start_pw_display_index - PASSWORDS_PER_PAGE;
             }
             
-
             this -> selected_pw_index = start_pw_display_index;
-
             this->display();
         } else if (*ir_data == IR_RIGHT && this->password_count > 0){ // Scroll to next page
             start_pw_display_index = start_pw_display_index + PASSWORDS_PER_PAGE >= password_count 
@@ -310,25 +329,20 @@ void Password_Manager::interact(uint32_t* ir_data){
         if (*ir_data == IR_HASHTAG){ // Exit selected password
             stage--;
             this->display();
-        }
-
-        else if (*ir_data == IR_ONE){
+        } else if (*ir_data == IR_ONE){ // Overwrite entry
             stage = 2;
             overwriting = true;
             this->display();
-        }
-
-        else if (*ir_data = IR_TWO && password_count > 1){
+        } else if (*ir_data = IR_TWO && password_count > 1){ // Delete entry
             // Delete entry from memory
-            eeprom_manager->deleteEntry(this->entries[selected_pw_index].start_address-2, 98);
+            eeprom_manager->clearEntryBit(this->entries[selected_pw_index].start_address);
+            eeprom_manager->clear(this->entries[selected_pw_index].start_address, EEPROM_PW_ENTRY_SIZE);
 
             // Remove the entry from the loaded entries
             memcpy(entries + selected_pw_index, entries + (password_count - 1), sizeof(Password_Entry));
 
             password_count--;
-
             selected_pw_index = 0;
-
             stage--;
 
             this->display();
@@ -361,7 +375,6 @@ void Password_Manager::interact(uint32_t* ir_data){
         keyboard->interact(ir_data);
 
         if (keyboard -> enterPressed()){
-
             if (!this->overwriting){
                 memcpy(this->entries[password_count].getPassword(), keyboard->getCurrentInput(), 32);
 
@@ -371,7 +384,7 @@ void Password_Manager::interact(uint32_t* ir_data){
             } else {
                 memcpy(this->entries[selected_pw_index].getPassword(), keyboard->getCurrentInput(), 32);
 
-                this->save(&this->entries[selected_pw_index]);
+                this->save(&this->entries[selected_pw_index]); // Don't need to clear entry bit as local overwrite mode
             }
 
             this->sortEntries();
@@ -382,6 +395,122 @@ void Password_Manager::interact(uint32_t* ir_data){
         }
     }
 } 
+
+void Password_Manager::sanitiseInput(const char* input, char* result, int buf_size){
+    // Sanitise the inputs with intermediate buffer, ensures no overflows, and ensures terminator
+    for (int i = 0; i < buf_size; i++){
+        if (input[i] != 0){
+            result[i] = input[i];
+        } else {
+            for (int j = i; j < buf_size; j++){
+                result[j] = 0;
+            }
+            break;
+        }
+    }
+    result[buf_size-1] = 0; // Just to be sure
+}
+
+Password_Entry* Password_Manager::getEntry(const char* name){
+    for (int i = 0; i < this->password_count; i++){
+        if (strcmp(this->entries[i].getName(), name) == 0){
+            return this->entries + i;
+        }
+    }
+    return NULL;
+}
+
+int Password_Manager::addEntry(const char* name, const char* user, const char* pwd){
+    if (password_count < PWD_LIMIT){
+        char sanitise_buffer[32];
+        this->sanitiseInput(name, sanitise_buffer, 32);
+        memcpy(this->entries[password_count].getName(), sanitise_buffer, 32);
+        this->sanitiseInput(user, sanitise_buffer, 32);
+        memcpy(this->entries[password_count].getEmail(), sanitise_buffer, 32);
+        this->sanitiseInput(pwd, sanitise_buffer, 32);
+        memcpy(this->entries[password_count].getPassword(), sanitise_buffer, 32);
+
+        this->save(&this->entries[password_count]);
+        password_count++;  
+
+        this->sortEntries();
+
+        return 0;
+    }
+    return -1;
+}
+
+int Password_Manager::deleteEntry(const char* name){
+    // Get index of entry
+    int ind = -1;
+    for (int i = 0; i < this->password_count; i++){
+        if (strcmp(this->entries[i].getName(), name) == 0){
+            ind = i;
+            break;
+        }
+    }
+
+    // Return -1 if not found
+    if (ind == -1)
+        return -1;
+
+    // Delete entry from memory
+    eeprom_manager->clearEntryBit(this->entries[ind].start_address);
+    eeprom_manager->clear(this->entries[ind].start_address, EEPROM_PW_ENTRY_SIZE);
+
+    // Remove the entry from the loaded entries
+    if (ind < password_count-1){
+        memcpy(entries + ind, entries + (password_count - 1), sizeof(Password_Entry));
+    }
+
+    password_count--;
+    selected_pw_index = 0;
+
+    this->sortEntries();
+
+    return 0;
+}
+
+int Password_Manager::editEntry(const char* old_name, const char* name, 
+        const char* user, const char* pwd){
+
+    // Get index of entry
+    int ind = -1;
+    for (int i = 0; i < this->password_count; i++){
+        if (strcmp(this->entries[i].getName(), old_name) == 0){
+            ind = i;
+            break;
+        }
+    }
+
+    // Return -1 if not found
+    if (ind == -1)
+        return -1;
+
+    // Sanitise inputs
+    char sanitise_buffer[32];
+    if (name != NULL){
+        this->sanitiseInput(name, sanitise_buffer, 32);
+        memcpy(this->entries[ind].getName(), sanitise_buffer, 32);
+    }
+
+    if (user != NULL){
+        this->sanitiseInput(user, sanitise_buffer, 32);
+        memcpy(this->entries[ind].getEmail(), sanitise_buffer, 32);
+    }
+
+    if (pwd != NULL){
+        this->sanitiseInput(pwd, sanitise_buffer, 32);
+        memcpy(this->entries[ind].getPassword(), sanitise_buffer, 32);
+    }
+
+    eeprom_manager->clearEntryBit(this->entries[ind].start_address);
+    this->save(&this->entries[ind]);
+
+    this->sortEntries();
+
+    return 0;
+}
 
 // Encrypt the passed data, and store it in the aes_buffer for writing to SD
 void Password_Manager::encrypt(char* data, byte* encrypted){
@@ -397,7 +526,7 @@ void Password_Manager::encrypt(char* data, byte* encrypted){
     data_bytes[i] = 0;
     i++;
 
-    // Padding
+    // Random padding salt (helps hide identical passwords)
     while (i < 32){
         data_bytes[i] = random(255);
         i++;
@@ -412,14 +541,12 @@ void Password_Manager::encrypt(char* data, byte* encrypted){
 // Decrypt the passed data (loaded from SD), store in aes_buffer for storage in entry
 void Password_Manager::decrypt(byte* encrypted, char* original){
     // Decrypt the encrypted array
-    for (int i = 0; i < 32; i += 16){
+    for (int i = 0; i < 32; i += 16)
         aes128->decryptBlock(encrypted + i, encrypted + i);
-    }
 
     // Populate the destination char array
-    for (int i = 0; i < 32; i++){
+    for (int i = 0; i < 32; i++)
         original[i] = (char) encrypted[i];
-    }
 }
 
 // Sets the key used to encrypt/decrypt the data, stored in key_bytes
@@ -443,44 +570,66 @@ void Password_Manager::setKey(char* key){
 }
 
 // Starting from position passed, read and decrypt password entry into entry class
-void Password_Manager::load(int position){
-    char decrypted[32];
-    byte encrypted[32];
-    int write_address = position;
-
-    entries[this->password_count].start_address = position; // For overwriting
-
-    // Load the name from eeprom and decrypt
+int Password_Manager::load(){
     for (int i = 0; i < 32; i++){
-        encrypted[i] = this->eeprom_manager->readExternalEEPROM(write_address);
-        write_address++;
+        byte mask_byte = this->eeprom_manager->readExternalEEPROM(PWD_BITMASK_START + i);
+        for (int j = 0; j < 8; j++){
+            if (bitRead(mask_byte, j) == byte(1)){
+                int position = PASSWORD_ENTRY_START + ((i*8 + j)*EEPROM_PW_ENTRY_SIZE);
+
+                char decrypted[32];
+                byte encrypted[32];
+                int write_address = position;
+
+                entries[this->password_count].start_address = position; // For overwriting
+
+                // Load the name from eeprom and decrypt
+                for (int i = 0; i < 32; i++){
+                    encrypted[i] = this->eeprom_manager->readExternalEEPROM(write_address);
+                    write_address++;
+                }
+
+                this->decrypt(encrypted, decrypted);
+
+                memcpy(entries[this->password_count].getName(), decrypted, 32);
+
+                // Load the username from eeprom and decrypt (also save encrypted version)
+                for (int i = 0; i < 32; i++){
+                    encrypted[i] = this->eeprom_manager->readExternalEEPROM(write_address);
+                    write_address++;
+                }
+
+                memcpy(entries[this->password_count].getEncryptedEmail(), encrypted, 32);
+
+                this->decrypt(encrypted, decrypted);
+
+                memcpy(entries[this->password_count].getEmail(), decrypted, 32);
+
+                // Load the password name from eeprom and decrypt (also save encrypted version)
+                for (int i = 0; i < 32; i++){
+                    encrypted[i] = this->eeprom_manager->readExternalEEPROM(write_address);
+                    write_address++;
+                }
+
+                memcpy(entries[this->password_count].getEncryptedPassword(), encrypted, 32);
+
+                this->decrypt(encrypted, decrypted);
+                
+                memcpy(entries[this->password_count].getPassword(), decrypted, 32);
+
+                this->password_count++;
+            }
+        }
     }
+    return this->password_count;
+}
 
-    this->decrypt(encrypted, decrypted);
+byte* Password_Entry::getEncryptedEmail(){
+    return this->encryptedEmail;
+}
 
-    memcpy(entries[this->password_count].getName(), decrypted, 32);
-
-    // Load the username from eeprom and decrypt
-    for (int i = 0; i < 32; i++){
-        encrypted[i] = this->eeprom_manager->readExternalEEPROM(write_address);
-        write_address++;
-    }
-
-    this->decrypt(encrypted, decrypted);
-
-    memcpy(entries[this->password_count].getEmail(), decrypted, 32);
-
-    // Load the password name from eeprom and decrypt
-    for (int i = 0; i < 32; i++){
-        encrypted[i] = this->eeprom_manager->readExternalEEPROM(write_address);
-        write_address++;
-    }
-
-    this->decrypt(encrypted, decrypted);
-
-    memcpy(entries[this->password_count].getPassword(), decrypted, 32);
-
-    this->password_count++;
+byte* Password_Entry::getEncryptedPassword(){
+    return this->encryptedPassword;
 }
 
 // Save the passed password entry to the passed file in the passed position
@@ -488,19 +637,7 @@ void Password_Manager::save(Password_Entry* entry){
     int write_address;
 
     if (!this->overwriting){ // Add new password
-        // Get password count from EEPROM and increment
-        byte count = this->eeprom_manager->readExternalEEPROM(0);
-        this->eeprom_manager->writeExternalEEPROM(0, count+1);
-
-        write_address = this->eeprom_manager->getNextFreeAddress(count);
-
-        // Write the size of this entry
-        this->eeprom_manager->writeExternalEEPROM(write_address, EEPROM_PW_ENTRY_SIZE);
-        write_address++;
-
-        // Write the type
-        this->eeprom_manager->writeExternalEEPROM(write_address, 0);
-        write_address++;   
+        write_address = this->eeprom_manager->getNextFreeAddress();
 
         entry->start_address = write_address;
     } else { // For overwriting selected password
@@ -614,7 +751,7 @@ void Wallet_Manager::display(){
         }
 
         // Draw the phrases on the screen
-        for (int i = start_wallet_display_index; i < min(start_wallet_display_index + PHRASES_PER_PAGE, this->entries[selected_wallet_index].phrase_count); i++){
+        for (int i = start_wallet_display_index; i < minval(start_wallet_display_index + PHRASES_PER_PAGE, this->entries[selected_wallet_index].phrase_count); i++){
             tft->setCursor(10, 28 + (i - start_wallet_display_index) * PHRASE_SEP);
             tft->print(i+1);
             tft->print(".");
@@ -646,7 +783,6 @@ void Wallet_Manager::display(){
         tft->print("Enter phrase count:");
 
         // Draw triangles to indicate more entries if there are any
-       
         if (new_phrase_count > 0){
             // Draw triangle at bottom
             tft->fillTriangle(tft->width()/2, tft->height()/2 - 30, tft->width()/2 - 4, tft->height()/2 - 25, tft->width()/2 + 4, tft->height()/2 - 25, SCHEME_MAIN);
@@ -709,7 +845,7 @@ void Wallet_Manager::interact(uint32_t* ir_code){
 
         if (*ir_code == IR_TWO){
             // Delete wallet from EEPROM
-            eeprom_manager->deleteEntry(this->entries[selected_wallet_index].start_address-2, 32 + 2 + this->entries[selected_wallet_index].phrase_count * 32);
+            eeprom_manager->deleteWalletEntry(this->entries[selected_wallet_index].start_address, WALLET_MAX_PHRASE_SIZE + 1 + this->entries[selected_wallet_index].phrase_count * WALLET_MAX_PHRASE_SIZE);
 
             ESP.restart(); // Must restart as to not fragment the heap
         }
@@ -818,61 +954,65 @@ void Wallet_Manager::decrypt(byte* encrypted, char* original){
     }
 }
 
-void Wallet_Manager::load(int position){
-    char decrypted[32];
-    byte encrypted[32];
+int Wallet_Manager::load(){
+    int count = this->eeprom_manager->readExternalEEPROM(WALLET_COUNT_ADDRESS);
+    int position = WALLET_START_ADDRESS;
 
-    entries[wallet_count].start_address = position;
+    for (int i = 0; i < count; i++){
+        char decrypted[32];
+        byte encrypted[32];
 
-    int phrase_load_count = this->eeprom_manager->readExternalEEPROM(position-2);
+        entries[wallet_count].start_address = position;
 
-    // Load the name
-    int write_address = position;
+        int phrase_load_count = this->eeprom_manager->readExternalEEPROM(position);
 
-    // Load the name from eeprom and decrypt
-    for (int i = 0; i < 32; i++){
-        encrypted[i] = this->eeprom_manager->readExternalEEPROM(write_address);
-        write_address++;
-    }
+        // Load the name
+        int write_address = position+1;
 
-    this->decrypt(encrypted, decrypted);
-
-    memcpy(entries[wallet_count].getName(), decrypted, 32);
-
-    // Load the phrases
-    for (int i = 0; i < phrase_load_count; i++){
-        // Load the phrase from EEPROM
-        for (int j = 0; j < 32; j++){
-            encrypted[j] = this->eeprom_manager->readExternalEEPROM(write_address);
+        // Load the name from eeprom and decrypt
+        for (int i = 0; i < 32; i++){
+            encrypted[i] = this->eeprom_manager->readExternalEEPROM(write_address);
             write_address++;
         }
 
-        // Decrypt the phrase
         this->decrypt(encrypted, decrypted);
 
-        // Add to the entry
-        this->entries[wallet_count].addPhrase(decrypted);
+        memcpy(entries[wallet_count].getName(), decrypted, 32);
+
+        // Load the phrases
+        for (int i = 0; i < phrase_load_count; i++){
+            // Load the phrase from EEPROM
+            for (int j = 0; j < 32; j++){
+                encrypted[j] = this->eeprom_manager->readExternalEEPROM(write_address);
+                write_address++;
+            }
+
+            // Decrypt the phrase
+            this->decrypt(encrypted, decrypted);
+
+            // Add to the entry
+            this->entries[wallet_count].addPhrase(decrypted);
+        }
+
+        wallet_count++;
+
+        position += 1 + (phrase_load_count*WALLET_MAX_PHRASE_SIZE) + WALLET_MAX_PHRASE_SIZE;
     }
 
-    wallet_count++;
+    return wallet_count;
 }
 
 void Wallet_Manager::save(Wallet_Entry* entry){
-    // Get password count from EEPROM and increment
-    byte count = this->eeprom_manager->readExternalEEPROM(0);
-    this->eeprom_manager->writeExternalEEPROM(0, count+1);
+    int write_address = this->eeprom_manager->getNextFreeWalletAddress(); // Get available address
 
-    int write_address = this->eeprom_manager->getNextFreeAddress(count);
+    Serial.println("WRITE ADDRESS WALLET");
+    Serial.println(write_address);
+
+    entry->start_address = write_address; // Set start address
 
     // Write the size of this entry (number of phrases)
     this->eeprom_manager->writeExternalEEPROM(write_address, entry->phrase_count);
     write_address++;
-
-    // Write the type
-    this->eeprom_manager->writeExternalEEPROM(write_address, 1);
-    write_address++;   
-
-    entry->start_address = write_address;
 
     // Write the encrypted name
     byte encrypted[32];
@@ -893,10 +1033,25 @@ void Wallet_Manager::save(Wallet_Entry* entry){
             write_address++;
         }
     }
+
+    int new_count = this->eeprom_manager->readExternalEEPROM(WALLET_COUNT_ADDRESS) + 1;
+    this->eeprom_manager->writeExternalEEPROM(WALLET_COUNT_ADDRESS, new_count);
 }
 
 void Wallet_Manager::setStage(int stage){
     this->stage = stage;
+}
+
+Wallet_Entry* Wallet_Manager::getEntry(const char* name){
+    // Get number of wallets stored
+    int count = this->eeprom_manager->readExternalEEPROM(WALLET_COUNT_ADDRESS);
+
+    for (int i = 0; i < count; i++){
+        if (strcmp(this->entries[i].getName(), name) == 0){
+            return this->entries + i;
+        }
+    }
+    return NULL;
 }
 
 void Wallet_Entry::addPhrase(char* phrase){

@@ -7,20 +7,25 @@
 #include "VAULT_IR_Codes.h"
 #include "EEPROM_Manager.h"
 
-#define PASSWORDS_PER_PAGE 10
-#define PASSWORD_SEP 14
+
 #define EEPROM_PW_ENTRY_SIZE 96 // Each entry takes up 96 bytes (IN HEX)
-#define PASSWORD_START_Y 18
 
-#define PHRASE_SEP 12
 #define PHRASES_PER_PAGE 10
+#define PASSWORDS_PER_PAGE 10
 
-#define max(a,b) \
-   ({ __typeof__ (a) _a = (a); \
-       __typeof__ (b) _b = (b); \
-     _a > _b ? _a : _b; })
+// UI stuff
+#define PHRASE_SEP 12
+#define PASSWORD_START_Y 18
+#define PASSWORD_SEP 14
 
-#define min(a,b) \
+#define PWD_LIMIT 128
+
+// #define max(a,b) \
+//    ({ __typeof__ (a) _a = (a); \
+//        __typeof__ (b) _b = (b); \
+//      _a > _b ? _a : _b; })
+
+#define minval(a,b) \
    ({ __typeof__ (a) _a = (a); \
        __typeof__ (b) _b = (b); \
      _a < _b ? _a : _b; })
@@ -71,11 +76,17 @@ class Password_Manager
         void encrypt(char*, byte*); // Encrypts passed data and stores in aes_buffer
         void decrypt(byte*, char*); // Decrypts the passed data and stores in aes_buffer
         void setKey(char* key); // Saves the encryption key in key_bytes
-        void load(int position); // Loads and decrypts saved password from file and stores in Password_Entry instance
+        int load(); // Loads and decrypts saved password from file and stores in Password_Entry instance
         void save(Password_Entry*); // Saves encrypted Password_Entry to SD card at given position
         boolean escaped = false;
         void setStage(int);
         void sortEntries();
+        Password_Entry* getEntry(const char* name);
+        int addEntry(const char* name, const char* user, const char* pwd);
+        int deleteEntry(const char* name);
+        int editEntry(const char* old_name, const char* name, 
+        const char* user, const char* pwd);
+        void sanitiseInput(const char* input, char* result, int buf_size);
 
     private:
         Adafruit_ST7735* tft;
@@ -108,12 +119,18 @@ class Password_Entry
         void setEmail(char*);
         void setPassword(char*);
 
+        byte* getEncryptedEmail();
+        byte* getEncryptedPassword();
+
         int start_address;
 
     private:
         char name[32];
         char email[32];
         char password [32];
+
+        byte encryptedEmail[32];
+        byte encryptedPassword[32];
 };
 
 class Wallet_Manager
@@ -124,9 +141,10 @@ class Wallet_Manager
         void interact(uint32_t*); // Allows user interaction
         void encrypt(char*, byte*); // Encrypts passed data and stores in aes_buffer
         void decrypt(byte*, char*); // Decrypts the passed data and stores in aes_buffer
-        void load(int position); // Loads and decrypts saved password from file and stores in Password_Entry instance
+        int load(); // Loads and decrypts saved password from file and stores in Password_Entry instance
         void save(Wallet_Entry*); // Saves encrypted Password_Entry to SD card at given position
         void setStage(int);
+        Wallet_Entry* getEntry(const char*);
 
         boolean escaped = false;
 
@@ -148,8 +166,6 @@ class Wallet_Manager
         int current_phrases_added = 0;
 };
 
-// Each entry stored in memory as | 0 | encrypted_name (32 bytes) |
-//  encrypted email (32 bytes) | encrypted password (32 bytes)
 class Wallet_Entry
 {
     public:
