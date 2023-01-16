@@ -17,12 +17,12 @@
 #define RESPONSE_BUFF_SIZE 2048
 
 // Define PIN config
-#define TFT_SCL   3
-#define RECV_PIN  D4
-#define TFT_RES   D7
-#define TFT_CS    D5
-#define TFT_DC    D6
-#define TFT_SDA   D8
+#define RECV_PIN  2 // D4
+#define TFT_SCL   3 // RX
+#define TFT_DC    12 // D6
+#define TFT_RES   13 // D7
+#define TFT_CS    14 // D5
+#define TFT_SDA   15 // D8
 
 #define MAX_PASSWORD_LENGTH 32
 
@@ -160,16 +160,30 @@ void loop(){
 
           // Load password into heap for further encryption/decryption
           int i = 0;
-          for (; i < keyboard->getCurrentInputLength(); i++){
+          for (; i < keyboard->getCurrentInputLength(); i++)
             password[i] = keyboard->getCurrentInput()[i];
-          }
 
           if (i > 0)
             password[i] = '\0';
 
           password_length = keyboard->getCurrentInputLength();
 
-          password_manager->setKey(password); // This also sets the key for the wallet manager as they both use the same AES instance
+          // Copy the password bytes and load into the aes128 cipher
+          byte key_bytes[16];
+          int j = 0;
+          int copy_index = 0;
+
+          while(j < 16){
+              // Fill the key with more key material (need to change probably)
+              if (password[copy_index] == 0)
+                  copy_index = 0;
+
+              key_bytes[j] = byte(password[copy_index]);
+              j++;
+              copy_index++;
+          }
+
+          aes128.setKey(key_bytes, aes128.keySize());
 
           loadCredentialsFromEEPROM();
 
@@ -416,7 +430,6 @@ int handlePasswordRead(const char* name, char* resp_buffer)
     return -1;
   
   char encryptedUsername [65];
-
   bytesToHexString(entry->getEncryptedEmail(), encryptedUsername);
   resp_doc["username"] = encryptedUsername;
 
@@ -558,18 +571,16 @@ boolean entryCheck(char* password, int entry_length){
   delay(random(500)); // No timing attacks here ;)
 
   for (int i = 0; i < HASH_SIZE; i++){
-    if (saved_hash[i] != hash[i]){
+    if (saved_hash[i] != hash[i])
       return false;
-    }
   }
   return true;
 }
 
 // Loads the existing sha256 hash from the EEPROM
 void loadHashFromEEPROM(uint8_t* hash){
-  for (int i = 5; i < 5 + HASH_SIZE; i++){
+  for (int i = 5; i < 5 + HASH_SIZE; i++)
     hash[i-5] = (char) EEPROM.read(i);
-  }
 }
 
 // Writes new master password to EEPROM
@@ -601,9 +612,8 @@ void printEEPROM(){
   Serial.print("EEPROM State:");
   int limit = 0;
   for (int i = 0; i < 512; i++){
-      if (i%32 == 0){
+      if (i%32 == 0)
         Serial.println();
-      }
     
       byte read_value = EEPROM.read(i);
 
@@ -622,32 +632,6 @@ void printEEPROM(){
 
 // Loads credentials from external i2c eeprom
 void loadCredentialsFromEEPROM(){ 
-  // int count = eeprom_manager->readExternalEEPROM(0);
-
-  // // if (count > 100){
-  // //   eeprom_manager->writeExternalEEPROM(0, 0);
-  // //   return;
-  // // }
-
-  // int type;
-  // int size;
-  // int read_address = 1;
-  // for (int i = 0; i < count; i++){
-  //   size = eeprom_manager->readExternalEEPROM(read_address);
-  //   type = eeprom_manager->readExternalEEPROM(read_address+1);
-  //   read_address+=2;
-
-  //   if (type == 0){ // Password
-  //     password_manager->load(read_address);
-  //     read_address += size;
-  //   } else if (type == 1){
-  //     wallet_manager->load(read_address);
-  //     read_address+= 32 + size*32;
-  //   }
-  // }
-
-  // 
-
   // Load in the passwords
   int pwd_count = password_manager->load();
   int wallet_count = wallet_manager->load();

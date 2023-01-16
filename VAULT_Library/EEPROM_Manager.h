@@ -7,13 +7,17 @@
 #define PASSWORD_ENTRY_START 37 // After the magic and mask
 #define EEPROM_PW_ENTRY_SIZE 96 // Each entry takes up 96 bytes (IN HEX)
 #define MASK_BYTE_COUNT 32
-#define PASSWORD_STORAGE_LIMIT 256
 #define PWD_BITMASK_START 5
 #define EEPROM_SIZE 32600
 
 #define WALLET_COUNT_ADDRESS 24614
 #define WALLET_START_ADDRESS 24615
 #define WALLET_MAX_PHRASE_SIZE 32
+
+#define minval(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a < _b ? _a : _b; })
 
 #ifndef EEPROM_Manager_H
 #define EEPROM_Manager_H

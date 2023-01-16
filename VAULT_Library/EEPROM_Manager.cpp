@@ -13,7 +13,7 @@ void EEPROM_Manager::fixBusted(){
   this->writeExternalEEPROM(4, 66);
 
   // Init the password entry bitmasks
-  for (int i = 0; i < 32; i++){
+  for (int i = 0; i < MASK_BYTE_COUNT; i++){
     this->writeExternalEEPROM(PWD_BITMASK_START + i, 0);
     Serial.println(this->readExternalEEPROM(PWD_BITMASK_START + i));
   }
@@ -47,7 +47,7 @@ void EEPROM_Manager::init(){
   this->writeExternalEEPROM(4, 66);
 
   // Init the password entry bitmasks
-  for (int i = 0; i < 32; i++){
+  for (int i = 0; i < MASK_BYTE_COUNT; i++){
     this->writeExternalEEPROM(PWD_BITMASK_START + i, 0);
     Serial.println(this->readExternalEEPROM(PWD_BITMASK_START + i));
   }
@@ -115,27 +115,8 @@ byte EEPROM_Manager::readExternalEEPROM(int address)
 
 // Returns the next available address for an entry
 int EEPROM_Manager::getNextFreeAddress(){
-  // // Get next free address
-  // int write_address = 1;
-  // int size; // Entry size
-  // int type; // Password or wallet entry?
-
-  // for (int i = 0; i < count; i++){
-  //     size = this->readExternalEEPROM(write_address);
-  //     type = this->readExternalEEPROM(write_address+1);
-
-  //     // Increment address based on observed type
-  //     if (type == 0){
-  //       write_address+=(size+2);
-  //     } else if (type == 1){
-  //       write_address += 2+(32 + size*32);
-  //     }
-  // }
-
-  // return write_address;
-
   // Check over all the bytes to see if there are any free blocks
-  for (int i = 0; i < 32; i++){
+  for (int i = 0; i < MASK_BYTE_COUNT; i++){
     // Get the byte that stores the address
     byte mask_byte = this->readExternalEEPROM(PWD_BITMASK_START + i);
     for (int j = 0; j < 8; j++){
