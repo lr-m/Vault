@@ -397,9 +397,21 @@ void handleSocketRequest(WiFiClient client, char* incoming){
       break;
     case 5:
       Serial.println("Adding wallet entry");
+      if (!inp_doc["name"].isNull()){
+        delay(random(250, 500));
+        if (handleWalletAdd(inp_doc["name"], inp_doc["phrases"], resp_buffer) == 0){
+          client.print(resp_buffer);
+        }
+      }
       break;
     case 6:
       Serial.println("Deleting wallet entry");
+      if (!inp_doc["name"].isNull()){
+        delay(random(250, 500));
+        if (handleWalletDel(inp_doc["name"], resp_buffer) == 0){
+          client.print(resp_buffer);
+        }
+      }
       break;
     default:
       break;
@@ -409,8 +421,10 @@ void handleSocketRequest(WiFiClient client, char* incoming){
 }
 
 // Handles remote password removal
-int handlePasswordRemove(const char* name, char* resp_buffer){
-  int response = password_manager->deleteEntry(name);
+int handlePasswordRemove(const char* enc_name, char* resp_buffer){
+  byte enc_name_bytes[32];
+  hexStringToBytes(enc_name, enc_name_bytes);
+  int response = password_manager->deleteEntry(enc_name_bytes);
 
   resp_doc["response"] = response;
 
@@ -422,9 +436,12 @@ int handlePasswordRemove(const char* name, char* resp_buffer){
 }
 
 // Handles remote password information request
-int handlePasswordRead(const char* name, char* resp_buffer)
+int handlePasswordRead(const char* enc_name, char* resp_buffer)
 {
-  Password_Entry* entry = password_manager->getEntry(name);
+  // Get entry
+  byte enc_name_bytes[32];
+  hexStringToBytes(enc_name, enc_name_bytes);
+  Password_Entry* entry = password_manager->getEntry(enc_name_bytes);
 
   if (entry == NULL)
     return -1;
@@ -446,7 +463,15 @@ int handlePasswordRead(const char* name, char* resp_buffer)
 
 // Handles remote password write
 int handlePasswordWrite(const char* name, const char* user, const char* pwd, char* resp_buffer){
-  int response = password_manager->addEntry(name, user, pwd);
+  byte encrypted_name[32];
+  byte encrypted_user[32];
+  byte encrypted_pwd[32];
+
+  hexStringToBytes(name, encrypted_name);
+  hexStringToBytes(user, encrypted_user);
+  hexStringToBytes(pwd, encrypted_pwd);
+  
+  int response = password_manager->addEntry(encrypted_name, encrypted_user, encrypted_pwd);
 
   resp_doc["response"] = response;
 
@@ -460,24 +485,58 @@ int handlePasswordWrite(const char* name, const char* user, const char* pwd, cha
 // Handles remote password write
 int handlePasswordEdit(const char* old_name, const char* name, const char* user, const char* pwd, char* resp_buffer){
   Serial.println("Handling password edit");
+  
+  // Get the entry
+  byte enc_name_bytes[32];
+  hexStringToBytes(old_name, enc_name_bytes);
+  Password_Entry* entry = password_manager->getEntry(enc_name_bytes);
+  if (entry == NULL){
+    return -1;
+  }
 
-  int response = password_manager->editEntry(old_name, name, user, pwd);
+  // If name provided, update the name
+  if (name != NULL){
+    char decrypted_name[32];
+    byte encrypted_name_bytes[32];
 
-  resp_doc["response"] = response;
+    hexStringToBytes(name, encrypted_name_bytes);
+    password_manager->decrypt(encrypted_name_bytes, decrypted_name);
+    memcpy(entry->getName(), decrypted_name, 32);
+  }
+
+  // If username provided, update the username
+  if (user != NULL){
+    byte encrypted_user[32];
+    hexStringToBytes(user, encrypted_user);
+    memcpy(entry->getEncryptedEmail(), encrypted_user, 32);
+  }
+
+  // If password provided, update the password
+  if (password != NULL){
+    byte encrypted_pwd[32];
+    hexStringToBytes(pwd, encrypted_pwd);
+    memcpy(entry->getEncryptedPassword(), encrypted_pwd, 32);
+  }
+
+  eeprom_manager->clearEntryBit(entry->start_address);
+  password_manager->save(entry);
+  password_manager->sortEntries();
+
+  resp_doc["response"] = 0;
 
   serializeJson(resp_doc, resp_buffer, RESPONSE_BUFF_SIZE);
 
-  Serial.println(response);
-
   resp_doc.clear();
   
-  return response;
+  return 0;
 }
 
 // Handles remote password information request
 int handleWalletRead(const char* name, char* resp_buffer)
 {
-  Wallet_Entry* entry = wallet_manager->getEntry(name);
+  byte enc_name_bytes[32];
+  hexStringToBytes(name, enc_name_bytes);
+  Wallet_Entry* entry = wallet_manager->getEntry(enc_name_bytes);
   if (entry == NULL)
     return -1;
 
@@ -502,6 +561,52 @@ int handleWalletRead(const char* name, char* resp_buffer)
   return 0;
 }
 
+int handleWalletAdd(const char* name, const char* phrases, char* resp_buffer){
+  byte enc_name_bytes[32];
+  char decrypted_name[32];
+  hexStringToBytes(name, enc_name_bytes);
+  wallet_manager->decrypt(enc_name_bytes, decrypted_name);
+
+  // Borrow the resp_doc for parsing the array of phrases
+  deserializeJson(resp_doc, phrases);
+
+  Wallet_Entry* entry = wallet_manager->getFreeEntry();
+
+  if (entry == NULL){
+    resp_doc["response"] = -1;
+    return -1;
+  }
+
+  entry->setName(decrypted_name);
+
+  // extract the values
+  JsonArray array = resp_doc.as<JsonArray>();
+  for(JsonVariant v : array) {
+    byte encrypted_phrase[32];
+    hexStringToBytes(v.as<char*>(), encrypted_phrase);
+    entry->addPhrase(encrypted_phrase);
+  }
+
+  wallet_manager->save(entry);
+  wallet_manager->setWalletCount(wallet_manager->getWalletCount()+1);
+
+  resp_doc.clear();
+  
+  resp_doc["response"] = 0;
+
+  serializeJson(resp_doc, resp_buffer, RESPONSE_BUFF_SIZE);
+
+  resp_doc.clear();
+
+  return 0;
+}
+
+int handleWalletDel(const char* name, char* resp_buffer){
+  // Wallet_Entry* entry = wallet_manager->getEntry(name);
+  // if (entry == NULL)
+  //   return -1;
+}
+
 uint8_t hexCharValue(char character)
 {
     character = character | 32;
@@ -515,9 +620,15 @@ uint8_t hexCharValue(char character)
     return 0xFF;
 }
 
-void bytesToHexString(byte bytes[], char hexString[]) {
+void bytesToHexString(byte* bytes, char* hexString) {
   for (int i = 0; i < 32; i++) {
     sprintf(hexString + i * 2, "%02X", bytes[i]);
+  }
+}
+
+void hexStringToBytes(const char* hexString, byte* bytes){
+  for (int i = 0; i < 32; i++) {
+      sscanf(hexString + 2 * i, "%2hhx", &bytes[i]);
   }
 }
 

@@ -4,7 +4,7 @@ Wallet_Manager::Wallet_Manager(Adafruit_ST7735* display, AES128* aes, ST7735_PW_
     this->tft = display;
     this->aes128 = aes;
 
-    this->entries = (Wallet_Entry*) malloc(sizeof(Wallet_Entry) * 8);
+    this->entries = (Wallet_Entry*) malloc(sizeof(Wallet_Entry) * MAX_WALLETS);
     this->keyboard = keyboard;
 
     this->eeprom_manager = eeprom_manager;
@@ -91,7 +91,7 @@ void Wallet_Manager::display(){
         tft->print(new_phrase_count);
         tft->setTextSize(1);
 
-        if (new_phrase_count < 32){
+        if (new_phrase_count < MAX_PHRASE_COUNT){
             // Draw triangle at top
             tft->fillTriangle(tft->width()/2, tft->height()/2 + 30, tft->width()/2 - 4, tft->height()/2 + 25, tft->width()/2 + 4, tft->height()/2 + 25, SCHEME_MAIN);
         }
@@ -136,10 +136,28 @@ void Wallet_Manager::interact(uint32_t* ir_code){
         }
 
         if (*ir_code == IR_TWO){
+            if (wallet_count > 1){
             // Delete wallet from EEPROM
-            eeprom_manager->deleteWalletEntry(this->entries[selected_wallet_index].start_address, WALLET_MAX_PHRASE_SIZE + 1 + this->entries[selected_wallet_index].phrase_count * WALLET_MAX_PHRASE_SIZE);
+                eeprom_manager->deleteWalletEntry(this->entries[selected_wallet_index].start_address, WALLET_MAX_PHRASE_SIZE + 1 + this->entries[selected_wallet_index].phrase_count * WALLET_MAX_PHRASE_SIZE);
 
-            ESP.restart(); // Must restart as to not fragment the heap
+                // Clear all the wallet entries from memory
+                for (int i = 0; i < MAX_WALLETS; i++){
+                    for (int j = 0; j < this->entries[j].phrase_count; j++){
+                        free(this->entries[i].getEncryptedPhrases()[j]);
+                    }
+                    this->entries[i].phrase_count = 0;
+                    this->entries[i].start_address = 0;
+                }
+
+                // Set the new index
+                this->selected_wallet_index = maxval(0, this->selected_wallet_index-1);
+
+                // Reload the entries
+                this->load();
+
+                // Reload the display
+                this->display();
+            }
         }
     } else if (stage == 1){
         keyboard->interact(ir_code);
@@ -167,7 +185,7 @@ void Wallet_Manager::interact(uint32_t* ir_code){
             tft->setTextSize(1);
         }
 
-        if (*ir_code == IR_UP && new_phrase_count + 1 <= 32){
+        if (*ir_code == IR_UP && new_phrase_count + 1 <= MAX_PHRASE_COUNT){
             new_phrase_count++;
 
             tft->fillRect(tft->width()/2 - 15, tft->height()/2 - 15, 30, 30, SCHEME_BG);
@@ -209,6 +227,26 @@ void Wallet_Manager::interact(uint32_t* ir_code){
             }
         }
     }
+}
+
+int Wallet_Manager::getWalletCount(){
+    return this->wallet_count;
+}
+        
+void Wallet_Manager::setWalletCount(int new_count){
+    this->wallet_count = new_count;
+}
+
+Wallet_Entry* Wallet_Manager::getFreeEntry(){
+    if (this->wallet_count < MAX_WALLETS) {
+        return this->entries + this->wallet_count;
+    } else {
+        return NULL;
+    }
+}
+
+int Wallet_Manager::deleteEntry(const char* name){
+
 }
 
 boolean Wallet_Manager::getEscaped(){
@@ -261,6 +299,7 @@ void Wallet_Manager::decrypt(byte* encrypted, char* original){
 int Wallet_Manager::load(){
     int count = this->eeprom_manager->readExternalEEPROM(WALLET_COUNT_ADDRESS);
     int position = WALLET_START_ADDRESS;
+    wallet_count = 0;
 
     for (int i = 0; i < count; i++){
         char decrypted[32];
@@ -337,12 +376,15 @@ void Wallet_Manager::setStage(int stage){
     this->stage = stage;
 }
 
-Wallet_Entry* Wallet_Manager::getEntry(const char* name){
+Wallet_Entry* Wallet_Manager::getEntry(byte* name){
+    char decrypted_name[32];
+    this->decrypt(name, decrypted_name);
+
     // Get number of wallets stored
     int count = this->eeprom_manager->readExternalEEPROM(WALLET_COUNT_ADDRESS);
 
     for (int i = 0; i < count; i++){
-        if (strcmp(this->entries[i].getName(), name) == 0){
+        if (strcmp(this->entries[i].getName(), decrypted_name) == 0){
             return this->entries + i;
         }
     }
@@ -350,6 +392,13 @@ Wallet_Entry* Wallet_Manager::getEntry(const char* name){
 }
 
 void Wallet_Entry::addPhrase(byte* phrase){
+    byte* new_phrase = (byte*) malloc(sizeof(byte) * 32);
+    memcpy(new_phrase, phrase, 32);
+    this->encrypted_phrases[phrase_count] = new_phrase;
+    this->phrase_count++;
+}
+
+void Wallet_Entry::addPhrase(const char* phrase){
     byte* new_phrase = (byte*) malloc(sizeof(byte) * 32);
     memcpy(new_phrase, phrase, 32);
     this->encrypted_phrases[phrase_count] = new_phrase;
@@ -364,10 +413,26 @@ byte** Wallet_Entry::getEncryptedPhrases(){
     return this->encrypted_phrases;
 }
 
+void Wallet_Entry::nullifyPhrases(){
+    *this->encrypted_phrases = NULL;
+}
+
 void Wallet_Entry::setName(char* buffer){
     int i = 0;
     while(buffer[i] != '\0'){
         this->name[i] = buffer[i];
         i++;
     }
+}
+
+void Wallet_Entry::setName(const char* buffer){
+    int i = 0;
+    while(buffer[i] != '\0'){
+        this->name[i] = buffer[i];
+        i++;
+    }
+}
+
+void Wallet_Entry::setEncryptedPhrase(int index, byte* phrase){
+    this->encrypted_phrases[index] = phrase;
 }

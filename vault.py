@@ -2,6 +2,7 @@ import socket
 import time
 from termcolor import colored
 from pyfiglet import Figlet
+from random import randint
 import argparse
 import hashlib
 from Crypto.Cipher import AES
@@ -76,6 +77,8 @@ def sendCommand(json_message):
 
         response += data
 
+    print(response)
+
     good("Received response")
 
     client.close()
@@ -110,15 +113,15 @@ def handlePwdCommand(command):
     pwd_cmds[command]()
 
 def readPassword():
-    # print(encrypt_aes_ecb(b"hello world", get_master_key_bytes()))
-    # print(decrypt_aes_ecb(encrypt_aes_ecb(b"hello world", get_master_key_bytes()), get_master_key_bytes()))
-    entry_name = getInput("Enter name of entry:")
+    key_bytes = get_master_key_bytes()
+
+    name = rand_pad(getInput("Enter entry name:").encode('utf-8'), 32)
     print()
 
     cmd = constructBaseJson(auth["master"], auth["session"])
 
     cmd["type"] = 0
-    cmd["name"] = entry_name
+    cmd["name"] = encrypt_aes_ecb(name, key_bytes).hex().upper()
 
     raw_response = sendCommand(cmd)
 
@@ -168,23 +171,25 @@ def decrypt_aes_ecb(ciphertext, key):
 
 def encrypt_aes_ecb(plaintext, key):
     cipher = AES.new(key, AES.MODE_ECB)
-    return cipher.encrypt(pad(plaintext, BLOCK_SIZE))
+    return cipher.encrypt(plaintext)
 
 def getInput(prompt):
     return input(f"[\033[36;1;3m{'?'}\033[0m] \033[1;1;3m{prompt}\033[0m\n    ")
 
 def addPassword():
-    name = getInput("Enter entry name:")
-    user = getInput("Enter username/email:")
-    pwd = getInput("Enter password:")
+    key_bytes = get_master_key_bytes()
+
+    name = rand_pad(getInput("Enter entry name:").encode('utf-8'), 32)
+    user = rand_pad(getInput("Enter username/email:").encode('utf-8'), 32)
+    pwd = rand_pad(getInput("Enter password:").encode('utf-8'), 32)
     print()
 
     cmd = constructBaseJson(auth["master"], auth["session"])
 
     cmd["type"] = 1
-    cmd["name"] = name
-    cmd["user"] = user
-    cmd["pwd"] = pwd
+    cmd["name"] = encrypt_aes_ecb(name, key_bytes).hex().upper()
+    cmd["user"] = encrypt_aes_ecb(user, key_bytes).hex().upper()
+    cmd["pwd"] = encrypt_aes_ecb(pwd, key_bytes).hex().upper()
 
     raw_response = sendCommand(cmd)
 
@@ -202,28 +207,31 @@ def addPassword():
         good("Password added successfully")
 
 def editPassword():
+    key_bytes = get_master_key_bytes()
+
     old_name = getInput("Enter old entry name:")
     new_name = getInput("Enter new entry name:")
     new_user = getInput("Enter new username/email:")
     new_pwd = getInput("Enter new password:")
 
-    print(old_name == '')
-
-    print()
+    old_name_bytes = rand_pad(old_name.encode('utf-8'), 32)
+    new_name_bytes = rand_pad(new_name.encode('utf-8'), 32)
+    new_user_bytes = rand_pad(new_user.encode('utf-8'), 32)
+    new_pwd_bytes = rand_pad(new_pwd.encode('utf-8'), 32)
 
     cmd = constructBaseJson(auth["master"], auth["session"])
 
     cmd["type"] = 2
-    cmd["name"] = old_name
+    cmd["name"] = encrypt_aes_ecb(old_name_bytes, key_bytes).hex().upper()
 
     if not new_name == '':
-        cmd["new_name"] = new_name
+        cmd["new_name"] = encrypt_aes_ecb(new_name_bytes, key_bytes).hex().upper()
     
     if not new_user == '':
-        cmd["new_user"] = new_user
+        cmd["new_user"] = encrypt_aes_ecb(new_user_bytes, key_bytes).hex().upper()
 
     if not new_pwd == '':
-        cmd["new_pwd"] = new_pwd
+        cmd["new_pwd"] = encrypt_aes_ecb(new_pwd_bytes, key_bytes).hex().upper()
 
     raw_response = sendCommand(cmd)
 
@@ -241,14 +249,15 @@ def editPassword():
         good("Password edited successfully")
 
 def deletePassword():
-    name = getInput("Enter entry name:")
+    key_bytes = get_master_key_bytes()
 
+    name = rand_pad(getInput("Enter entry name:").encode('utf-8'), 32)
     print()
 
     cmd = constructBaseJson(auth["master"], auth["session"])
 
     cmd["type"] = 3
-    cmd["name"] = name
+    cmd["name"] = encrypt_aes_ecb(name, key_bytes).hex().upper()
 
     raw_response = sendCommand(cmd)
 
@@ -273,12 +282,107 @@ def handleWalletCommand(command):
     wallet_cmds[command]()
 
 def readWallet():
-    entry_name = getInput("Enter name of entry:")
+    key_bytes = get_master_key_bytes()
+
+    entry_name = rand_pad(getInput("Enter entry name:").encode('utf-8'), 32)
     print()
 
     cmd = constructBaseJson(auth["master"], auth["session"])
 
     cmd["type"] = 4
+    cmd["name"] = encrypt_aes_ecb(entry_name, key_bytes).hex().upper()
+
+    raw_response = sendCommand(cmd)
+
+    if raw_response == -1:
+        bad("Connection to vault failed")
+
+    # Check for empty response
+    if raw_response == b'':
+        bad("Empty response")
+        return
+
+    # Sends '0' if password not available
+    if raw_response == b'0':
+        bad("Wallet does not exist on the device")
+
+    # Parse the response
+    response = json.loads(raw_response)
+
+    key_bytes = get_master_key_bytes()
+
+    phrases = []
+
+    for phrase in response:
+        phrases.append(decrypt_aes_ecb(phrase.lower(), key_bytes))
+
+    good("Decrypted response\n")
+
+    ind = 0
+    for phrase in phrases:
+        print(f"[\033[93;1;3m{'$'}\033[0m] \033[;1;3mPhrase {ind}\033[0m:\t {phrase[:phrase.index(0)].decode()}")
+        ind+=1
+
+def addWallet():
+    print("Adding wallet")
+
+    key_bytes = get_master_key_bytes()
+
+    wlt_name = rand_pad(getInput("Enter wallet name:").encode('utf-8'), 32)
+    entry_count = getInput("Enter the number of phrases")
+
+    if int(entry_count) <= 0 or int(entry_count) > 24:
+        bad("Invalid entry count")
+        return
+
+    key_bytes = get_master_key_bytes()
+
+    phrases = []
+    for i in range(0, int(entry_count)):
+        str_input = getInput(f"Enter wallet phrase {i}:")
+        byte_input = str_input.encode('utf-8')
+        padded_input = rand_pad(byte_input, 32)
+
+        # Encrypt and append
+        encrypted = encrypt_aes_ecb(padded_input, key_bytes)
+        phrases.append(encrypt_aes_ecb(padded_input, key_bytes).hex().upper());
+    
+    cmd = constructBaseJson(auth["master"], auth["session"])
+
+    cmd["type"] = 5
+    cmd["name"] = encrypt_aes_ecb(wlt_name, key_bytes).hex().upper()
+    cmd["phrases"] = json.dumps(phrases)
+
+    print(json.dumps(cmd))
+
+    raw_response = sendCommand(cmd)
+
+    if raw_response == -1:
+        bad("Connection to vault failed")
+
+    # Check for empty response
+    if raw_response == b'':
+        bad("Empty response")
+        return
+
+    # Sends '0' if password not available
+    if raw_response == b'0':
+        bad("Wallet does not exist on the device")
+
+    # Parse the response
+    response = json.loads(raw_response)
+
+    print(response)
+
+def delWallet():
+    print("Deleting wallet")
+
+    entry_name = getInput("Enter name of wallet:")
+    print()
+
+    cmd = constructBaseJson(auth["master"], auth["session"])
+
+    cmd["type"] = 6
     cmd["name"] = entry_name
 
     raw_response = sendCommand(cmd)
@@ -312,11 +416,21 @@ def readWallet():
         print(f"[\033[93;1;3m{'$'}\033[0m] \033[;1;3mPhrase {ind}\033[0m:\t {phrase[:phrase.index(0)].decode()}")
         ind+=1
 
-    # 
-    # print(f"[\033[93;1;3m{'$'}\033[0m] \033[;1;3m{'Password'}\033[0m:\t\t {password[:password.index(0)].decode()}")
+def rand_pad(byte_input, target_size):
+    padded_input = bytearray(target_size)
 
-def addWallet():
-    print("Adding wallet")
+    # Copy phrase
+    for i in range(len(byte_input)):
+        padded_input[i] = byte_input[i]
+
+    # Add null terminator
+    padded_input[len(byte_input)] = 0;
+
+    # Random padding
+    for i in range(len(byte_input) + 1, 32):
+        padded_input[i] = randint(0, 255)
+
+    return padded_input
 
 def initCmdLine():
     cmds["exit"] = endSession
@@ -336,6 +450,7 @@ def initCmdLine():
 
     wallet_cmds["add"] = addWallet
     wallet_cmds["read"] = readWallet
+    wallet_cmds["del"] = delWallet
 
 def handleSet(input):
     if input.count(' ') == 0:
@@ -372,7 +487,8 @@ def printHelp():
 
     print(f"\n\
     \033[33;1;3m{'wlt read'}\033[0m \t Reads stored wallet with name\n\
-    \033[33;1;3m{'wlt add'}\033[0m \t Adds wallet entry to device")
+    \033[33;1;3m{'wlt add'}\033[0m \t Adds wallet entry to device\n\
+    \033[33;1;3m{'wlt del'}\033[0m \t Deletes the stored wallet with name")
 
 def main():
     f = Figlet(font='slant')

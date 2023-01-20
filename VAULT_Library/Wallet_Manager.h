@@ -9,22 +9,28 @@
 
 #define PHRASES_PER_PAGE 10
 #define PHRASE_SEP 12
+#define MAX_WALLETS 10
+#define MAX_PHRASE_COUNT 24
 
 class Wallet_Entry
 {
     public:
         char* getName();
         byte** getEncryptedPhrases();
+        void setEncryptedPhrase(int, byte*);
+        void nullifyPhrases();
 
         void setName(char*);
+        void setName(const char*);
         void addPhrase(byte*);
+        void addPhrase(const char*);
 
         int phrase_count;
         int start_address;
 
     private:
         char name[32];
-        byte* encrypted_phrases[32];
+        byte* encrypted_phrases[MAX_PHRASE_COUNT];
 };
 
 class Wallet_Manager
@@ -42,10 +48,18 @@ class Wallet_Manager
         void save(Wallet_Entry*); // Saves encrypted Password_Entry to SD card at given position
 
         void setStage(int);
-        Wallet_Entry* getEntry(const char*);
+        Wallet_Entry* getEntry(byte*);
+
+        int deleteEntry(const char*);
+        int addEntry(const char*, char**);
 
         boolean getEscaped();
         void setEscaped(boolean);
+
+        Wallet_Entry* getFreeEntry();
+
+        int getWalletCount();
+        void setWalletCount(int);
  
     private:
         Adafruit_ST7735* tft;

@@ -47,10 +47,9 @@ class Password_Manager
         void save(Password_Entry*); // Saves encrypted Password_Entry to SD card at given position
 
         void sortEntries();
-        Password_Entry* getEntry(const char* name);
-        int addEntry(const char* name, const char* user, const char* pwd);
-        int deleteEntry(const char* name);
-        int editEntry(const char* old_name, const char* name, const char* user, const char* pwd);
+        Password_Entry* getEntry(byte* name);
+        int addEntry(byte* name, byte* user, byte* pwd);
+        int deleteEntry(byte* name);
 
         void sanitiseInput(const char* input, char* result, int buf_size);
         void setStage(int);

@@ -269,9 +269,12 @@ void Password_Manager::sanitiseInput(const char* input, char* result, int buf_si
     }
 }
 
-Password_Entry* Password_Manager::getEntry(const char* name){
+Password_Entry* Password_Manager::getEntry(byte* name){
+    char decrypted_name[32];
+    this->decrypt(name, decrypted_name);
+    
     for (int i = 0; i < this->password_count; i++){
-        if (strcmp(this->entries[i].getName(), name) == 0){
+        if (strcmp(this->entries[i].getName(), decrypted_name) == 0){
             return this->entries + i;
         }
     }
@@ -286,24 +289,18 @@ void Password_Manager::setEscaped(boolean val){
     this->escaped = val;
 }
 
-int Password_Manager::addEntry(const char* name, const char* user, const char* pwd){
+int Password_Manager::addEntry(byte* enc_name, byte* enc_user, byte* enc_pwd){
     if (password_count < PASSWORD_STORAGE_LIMIT){
-        char sanitise_buffer[32];
-        byte encrypted[32];
+        // Decrypt and save name
+        char decrypted_name[32];
+        this->decrypt(enc_name, decrypted_name);
+        memcpy(this->entries[password_count].getName(), decrypted_name, 32);
 
-        // Copy name
-        this -> sanitiseInput(name, sanitise_buffer, 32);
-        memcpy(this->entries[password_count].getName(), sanitise_buffer, 32);
+        // Copy email
+        memcpy(this->entries[password_count].getEncryptedEmail(), enc_user, 32);
 
-        // Copy email (encrypt for now, will change)
-        this->sanitiseInput(user, sanitise_buffer, 32);
-        this -> encrypt(sanitise_buffer, encrypted);
-        memcpy(this->entries[password_count].getEncryptedEmail(), encrypted, 32);
-
-        // Copy password (encrypt for now, will change)
-        this->sanitiseInput(pwd, sanitise_buffer, 32);
-        this -> encrypt(sanitise_buffer, encrypted);
-        memcpy(this->entries[password_count].getEncryptedPassword(), encrypted, 32);
+        // Copy password
+        memcpy(this->entries[password_count].getEncryptedPassword(), enc_pwd, 32);
 
         this->save(&this->entries[password_count]);
         password_count++;  
@@ -315,11 +312,14 @@ int Password_Manager::addEntry(const char* name, const char* user, const char* p
     return -1;
 }
 
-int Password_Manager::deleteEntry(const char* name){
+int Password_Manager::deleteEntry(byte* name){
+    char decrypted_name[32];
+    this->decrypt(name, decrypted_name);
+
     // Get index of entry
     int ind = -1;
     for (int i = 0; i < this->password_count; i++){
-        if (strcmp(this->entries[i].getName(), name) == 0){
+        if (strcmp(this->entries[i].getName(), decrypted_name) == 0){
             ind = i;
             break;
         }
@@ -340,51 +340,6 @@ int Password_Manager::deleteEntry(const char* name){
 
     password_count--;
     selected_pw_index = 0;
-
-    this->sortEntries();
-
-    return 0;
-}
-
-int Password_Manager::editEntry(const char* old_name, const char* name, 
-        const char* user, const char* pwd){
-
-    // Get index of entry
-    int ind = -1;
-    for (int i = 0; i < this->password_count; i++){
-        if (strcmp(this->entries[i].getName(), old_name) == 0){
-            ind = i;
-            break;
-        }
-    }
-
-    // Return -1 if not found
-    if (ind == -1)
-        return -1;
-
-    // Sanitise inputs
-    char sanitise_buffer[32];
-    
-    if (name != NULL){
-        this->sanitiseInput(name, sanitise_buffer, 32);
-        memcpy(this->entries[ind].getName(), sanitise_buffer, 32);
-    }
-
-    byte encrypted[32];
-    if (user != NULL){
-        this->sanitiseInput(user, sanitise_buffer, 32);
-        this->encrypt(sanitise_buffer, encrypted);
-        memcpy(this->entries[ind].getEncryptedEmail(), encrypted, 32);
-    }
-
-    if (pwd != NULL){
-        this->sanitiseInput(pwd, sanitise_buffer, 32);
-        this->encrypt(sanitise_buffer, encrypted);
-        memcpy(this->entries[ind].getEncryptedPassword(), encrypted, 32);
-    }
-
-    eeprom_manager->clearEntryBit(this->entries[ind].start_address);
-    this->save(&this->entries[ind]);
 
     this->sortEntries();
 
