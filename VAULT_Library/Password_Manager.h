@@ -11,6 +11,8 @@
 #define PASSWORD_START_Y 18
 #define PASSWORD_SEP 14
 #define PASSWORD_STORAGE_LIMIT 256
+#define MAX_NAME_LEN 16
+#define MAX_USER_PWD_LEN 21
 
 // Each entry stored in memory as | 0 | encrypted_name (32 bytes) |
 //  encrypted email (32 bytes) | encrypted password (32 bytes)

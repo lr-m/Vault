@@ -24,8 +24,6 @@
 #define TFT_CS    14 // D5
 #define TFT_SDA   15 // D8
 
-#define MAX_PASSWORD_LENGTH 32
-
 bool remote_mode = false;
 
 extern unsigned char epd_bitmap_logo[];
@@ -34,6 +32,7 @@ AES128 aes128; // For aes encryption
 SHA512 sha512;
 #define BLOCK_SIZE 128
 #define HASH_SIZE 64
+#define MAX_MASTER_LEN 15
 
 char* password;
 char* session_key;
@@ -76,6 +75,8 @@ void setup(){
   keyboard = (ST7735_PW_Keyboard *)malloc(sizeof(ST7735_PW_Keyboard));
   *keyboard = ST7735_PW_Keyboard(&tft);
 
+  keyboard->setLengthLimit(MAX_MASTER_LEN); // Set max master pwd len
+
   // Initialise menu
   menu = (ST7735_PW_Menu*) malloc(sizeof(ST7735_PW_Menu));
   *menu = ST7735_PW_Menu(&tft);
@@ -92,7 +93,7 @@ void setup(){
   wallet_manager = (Wallet_Manager*) malloc(sizeof(Wallet_Manager));
   *wallet_manager = Wallet_Manager(&tft, &aes128, keyboard, eeprom_manager);
 
-  password = (char*) malloc(sizeof(char) * MAX_PASSWORD_LENGTH);
+  password = (char*) malloc(sizeof(char) * (MAX_MASTER_LEN + 1));
 
 //  // For clearing the master password
 //  EEPROM.write(0, 0);
@@ -127,13 +128,13 @@ void setup(){
 }
 
 void loop(){  
-  // Stage 1: Password input (uses the sha256 hash on the EEPROM)
+  // Stage 1: Password input (uses the sha512 hash on the EEPROM)
   if (!master_key_succeed){
     if (irrecv.decode()) {
-       if (irrecv.decodedIRData.decodedRawData == IR_HASHTAG) {
+      if (irrecv.decodedIRData.decodedRawData == IR_HASHTAG) {
         eeprom_manager->fixBusted();
         ESP.restart();
-       }
+      }
 
       if (irrecv.decodedIRData.decodedRawData == IR_ZERO){
         EEPROM.write(0, 0);
@@ -141,32 +142,34 @@ void loop(){
         ESP.restart();
       }
 
-      // Need to limit keyboard input for password to 24
       keyboard->interact(&irrecv.decodedIRData.decodedRawData);
       irrecv.resume();
     }
 
     if (keyboard->enterPressed() == 1){
       if (perform_setup){
+        // Save the entered password to the internal eeprom
         writePasswordToEEPROM(keyboard->getCurrentInput(), keyboard->getCurrentInputLength());
         ESP.restart();
       } else {
         // Compare hash of entered passcode against the stored hash
         if (entryCheck(keyboard->getCurrentInput(), keyboard->getCurrentInputLength())){
+          // Indicate successful check
           tft.setTextColor(ST77XX_GREEN);
           tft.print("\n\nEntry Granted");
           master_key_succeed = true;
-          delay(1000);
+          delay(500);
+
+          password_length = keyboard->getCurrentInputLength();
 
           // Load password into heap for further encryption/decryption
           int i = 0;
-          for (; i < keyboard->getCurrentInputLength(); i++)
+          for (; i < password_length; i++)
             password[i] = keyboard->getCurrentInput()[i];
 
+          // Force null terminator
           if (i > 0)
             password[i] = '\0';
-
-          password_length = keyboard->getCurrentInputLength();
 
           // Copy the password bytes and load into the aes128 cipher
           byte key_bytes[16];
@@ -174,7 +177,7 @@ void loop(){
           int copy_index = 0;
 
           while(j < 16){
-              // Fill the key with more key material (need to change probably)
+              // Fill the key with more key material
               if (password[copy_index] == 0)
                   copy_index = 0;
 
@@ -183,15 +186,16 @@ void loop(){
               copy_index++;
           }
 
+          // Set the key to the loaded key bytes
           aes128.setKey(key_bytes, aes128.keySize());
 
+          // Load the passwords and wallets
           loadCredentialsFromEEPROM();
 
+          // Draw the home screen
           tft.fillScreen(SCHEME_BG);
-
           tft.fillRoundRect(40, 15, 36, 30, 8, ST77XX_WHITE);
           drawBitmap(0, 0, epd_bitmap_logo, 128, 64, SCHEME_MAIN);
-
           menu->display();
         } else {
           // Refuse entry and let user try again
@@ -372,45 +376,40 @@ void handleSocketRequest(WiFiClient client, char* incoming){
         if (!inp_doc["new_pwd"].isNull())
           new_pwd = inp_doc["new_pwd"];
           
-        if (handlePasswordEdit(inp_doc["name"], new_name, new_user, new_pwd, resp_buffer) == 0){
+        if (handlePasswordEdit(inp_doc["name"], new_name, new_user, new_pwd, resp_buffer) == 0)
           client.print(resp_buffer);
-        }
       }
       break;
     case 3:
       Serial.println("Deleting password entry");
       if (!inp_doc["name"].isNull()){
         delay(random(250, 500));
-        if (handlePasswordRemove(inp_doc["name"], resp_buffer) == 0){
+        if (handlePasswordRemove(inp_doc["name"], resp_buffer) == 0)
           client.print(resp_buffer);
-        }
       }
       break;
     case 4:
       Serial.println("Reading wallet entry");
       if (!inp_doc["name"].isNull()){
         delay(random(250, 500));
-        if (handleWalletRead(inp_doc["name"], resp_buffer) == 0){
+        if (handleWalletRead(inp_doc["name"], resp_buffer) == 0)
           client.print(resp_buffer);
-        }
       }
       break;
     case 5:
       Serial.println("Adding wallet entry");
       if (!inp_doc["name"].isNull()){
         delay(random(250, 500));
-        if (handleWalletAdd(inp_doc["name"], inp_doc["phrases"], resp_buffer) == 0){
+        if (handleWalletAdd(inp_doc["name"], inp_doc["phrases"], resp_buffer) == 0)
           client.print(resp_buffer);
-        }
       }
       break;
     case 6:
       Serial.println("Deleting wallet entry");
       if (!inp_doc["name"].isNull()){
         delay(random(250, 500));
-        if (handleWalletDel(inp_doc["name"], resp_buffer) == 0){
+        if (handleWalletDel(inp_doc["name"], resp_buffer) == 0)
           client.print(resp_buffer);
-        }
       }
       break;
     default:
@@ -602,9 +601,21 @@ int handleWalletAdd(const char* name, const char* phrases, char* resp_buffer){
 }
 
 int handleWalletDel(const char* name, char* resp_buffer){
-  // Wallet_Entry* entry = wallet_manager->getEntry(name);
-  // if (entry == NULL)
-  //   return -1;
+  byte enc_name_bytes[32];
+  hexStringToBytes(name, enc_name_bytes);
+  Wallet_Entry* entry = wallet_manager->getEntry(enc_name_bytes);
+  if (entry == NULL)
+    return -1;
+
+  wallet_manager->remove(entry);
+
+  resp_doc["response"] = 0;
+
+  serializeJson(resp_doc, resp_buffer, RESPONSE_BUFF_SIZE);
+
+  resp_doc.clear();
+
+  return 0;
 }
 
 uint8_t hexCharValue(char character)
@@ -714,7 +725,6 @@ void writePasswordToEEPROM(char* password, int entry_length){
   }
 
   EEPROM.write(eeprom_address, '\0');
-
   EEPROM.commit();
 }
 
@@ -747,6 +757,7 @@ void loadCredentialsFromEEPROM(){
   int pwd_count = password_manager->load();
   int wallet_count = wallet_manager->load();
 
+  // Sorts the entries into alphabetical order (ish)
   password_manager->sortEntries();
 }
 

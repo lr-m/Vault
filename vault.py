@@ -166,12 +166,38 @@ def decrypt_aes_ecb(ciphertext, key):
     if (isinstance(ciphertext, str)):
         ciphertext = binascii.unhexlify(ciphertext)
     cipher = AES.new(key, AES.MODE_ECB)
-    plaintext = cipher.decrypt(ciphertext)
+    padded_plaintext = cipher.decrypt(ciphertext)
+
+    plaintext = bytearray(32)
+
+    for i in range(0, 12):
+        plaintext[i] = padded_plaintext[i]
+
+    for i in range(16, 28):
+        plaintext[i-4] = padded_plaintext[i]
+
+    plaintext[25] = 0
+
     return plaintext
 
 def encrypt_aes_ecb(plaintext, key):
     cipher = AES.new(key, AES.MODE_ECB)
-    return cipher.encrypt(plaintext)
+    
+    padded_plaintext = bytearray(32)
+
+    for i in range(0, 12):
+        padded_plaintext[i] = plaintext[i]
+    
+    for i in range(12, 16):
+        padded_plaintext[i] = randint(0, 255)
+
+    for i in range(16, 28):
+        padded_plaintext[i] = plaintext[i-4]
+
+    for i in range(28, 32):
+        padded_plaintext[i] = randint(0, 255)
+    
+    return cipher.encrypt(padded_plaintext)
 
 def getInput(prompt):
     return input(f"[\033[36;1;3m{'?'}\033[0m] \033[1;1;3m{prompt}\033[0m\n    ")
@@ -377,13 +403,15 @@ def addWallet():
 def delWallet():
     print("Deleting wallet")
 
-    entry_name = getInput("Enter name of wallet:")
+    key_bytes = get_master_key_bytes()
+
+    entry_name = rand_pad(getInput("Enter entry name:").encode('utf-8'), 32)
     print()
 
     cmd = constructBaseJson(auth["master"], auth["session"])
 
     cmd["type"] = 6
-    cmd["name"] = entry_name
+    cmd["name"] = encrypt_aes_ecb(entry_name, key_bytes).hex().upper()
 
     raw_response = sendCommand(cmd)
 
@@ -402,19 +430,7 @@ def delWallet():
     # Parse the response
     response = json.loads(raw_response)
 
-    key_bytes = get_master_key_bytes()
-
-    phrases = []
-
-    for phrase in response:
-        phrases.append(decrypt_aes_ecb(phrase.lower(), key_bytes))
-
-    good("Decrypted response\n")
-
-    ind = 0
-    for phrase in phrases:
-        print(f"[\033[93;1;3m{'$'}\033[0m] \033[;1;3mPhrase {ind}\033[0m:\t {phrase[:phrase.index(0)].decode()}")
-        ind+=1
+    print(response)
 
 def rand_pad(byte_input, target_size):
     padded_input = bytearray(target_size)

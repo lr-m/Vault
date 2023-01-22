@@ -40,14 +40,14 @@ void Wallet_Manager::display(){
 
         // Draw the phrases on the screen
         for (int i = start_wallet_display_index; i < minval(start_wallet_display_index + PHRASES_PER_PAGE, this->entries[selected_wallet_index].phrase_count); i++){
-            tft->setCursor(10, 28 + (i - start_wallet_display_index) * PHRASE_SEP);
-            tft->print(i+1);
-            tft->print(".");
-            tft->setCursor(32, 28 + (i - start_wallet_display_index) * PHRASE_SEP);
+           
             
             // Decrypt phrase when needed
             char decrypted[32];
             this->decrypt(this->entries[selected_wallet_index].getEncryptedPhrases()[i], decrypted);
+            
+            int length = strlen(decrypted);
+            tft->setCursor(64 - (length*6)/2, 28 + (i - start_wallet_display_index) * PHRASE_SEP);
             tft->print(decrypted);
         }
         
@@ -63,7 +63,7 @@ void Wallet_Manager::display(){
         tft->print("2: Delete");
     } else if (stage == 1){ // Let user enter wallet names
         keyboard->reset();
-        keyboard->setLengthLimit(16);
+        keyboard->setLengthLimit(MAX_NAME_LEN);
         keyboard->displayPrompt("Enter wallet name:");
         keyboard->display();
     } else if (stage == 2){ // Let user enter number of entries (limit 24)
@@ -97,7 +97,7 @@ void Wallet_Manager::display(){
         }
     } else if (stage == 3){ // Let user enter the phrases
         keyboard->reset();
-        keyboard->setLengthLimit(15);
+        keyboard->setLengthLimit(MAX_PHRASE_LEN);
         keyboard->displayPrompt("Enter phrase ");
         tft->print(current_phrases_added+1);
         tft->print('/');
@@ -137,23 +137,7 @@ void Wallet_Manager::interact(uint32_t* ir_code){
 
         if (*ir_code == IR_TWO){
             if (wallet_count > 1){
-            // Delete wallet from EEPROM
-                eeprom_manager->deleteWalletEntry(this->entries[selected_wallet_index].start_address, WALLET_MAX_PHRASE_SIZE + 1 + this->entries[selected_wallet_index].phrase_count * WALLET_MAX_PHRASE_SIZE);
-
-                // Clear all the wallet entries from memory
-                for (int i = 0; i < MAX_WALLETS; i++){
-                    for (int j = 0; j < this->entries[j].phrase_count; j++){
-                        free(this->entries[i].getEncryptedPhrases()[j]);
-                    }
-                    this->entries[i].phrase_count = 0;
-                    this->entries[i].start_address = 0;
-                }
-
-                // Set the new index
-                this->selected_wallet_index = maxval(0, this->selected_wallet_index-1);
-
-                // Reload the entries
-                this->load();
+                this->remove(this->entries + selected_wallet_index);
 
                 // Reload the display
                 this->display();
@@ -229,6 +213,31 @@ void Wallet_Manager::interact(uint32_t* ir_code){
     }
 }
 
+void Wallet_Manager::remove(Wallet_Entry* entry){
+    // Delete wallet from EEPROM
+    eeprom_manager->deleteWalletEntry(entry->start_address, WALLET_MAX_PHRASE_SIZE + 1 + entry->phrase_count * WALLET_MAX_PHRASE_SIZE);
+
+    // Clear all the wallet entries from memory
+    this->clear();
+
+    // Set the new index
+    this->selected_wallet_index = maxval(0, this->selected_wallet_index-1);
+
+    // Reload the entries
+    this->load();
+}
+
+void Wallet_Manager::clear(){
+    // Clear all the wallet entries from memory
+  for (int i = 0; i < MAX_WALLETS; i++){
+      for (int j = 0; j < this->entries[j].phrase_count; j++){
+          free(this->entries[i].getEncryptedPhrases()[j]);
+      }
+      this->entries[i].phrase_count = 0;
+      this->entries[i].start_address = 0;
+  }
+}
+
 int Wallet_Manager::getWalletCount(){
     return this->wallet_count;
 }
@@ -257,43 +266,55 @@ void Wallet_Manager::setEscaped(boolean val){
     this->escaped = val;
 }
 
-void Wallet_Manager::encrypt(char* decrypted, byte* encrypted){
-    // Convert char to byte array
-    byte data_bytes[32];
+void Wallet_Manager::encrypt(char* data, byte* encrypted){
+    // Make sure the string has some random padding before its split and encrypted
+    int nullterm_index = 0;
+    while(data[nullterm_index] != 0)
+        nullterm_index++;
 
+    for (int i = nullterm_index + 1; i < 32; i++)
+        data[i] = random(255);
+
+    // Do the splitting
+    byte to_encrypt_bytes[32];
     int i = 0;
-    while(decrypted[i] != 0 && i < 31){
-        data_bytes[i] = byte(decrypted[i]);
-        i++;
-    }
+    // First chunk
+    for (; i < 12; i++)
+        to_encrypt_bytes[i] = byte(data[i]);
 
-    data_bytes[i] = 0;
-    i++;
+    // Random padding for first chunk
+    for (; i < 16; i++)
+        to_encrypt_bytes[i] = random(255);
 
-    // Padding
-    while (i < 32){
-        data_bytes[i] = random(255);
-        i++;
-    }
+    // Second chunk
+    for (; i < 28; i++)
+        to_encrypt_bytes[i] = byte(data[i-4]);
+
+    // Random padding for second chunk
+    for (; i < 32; i++)
+        to_encrypt_bytes[i] = random(255);
 
     // Perform encryption
-    for (int i = 0; i < 32; i += 16){
-        aes128->encryptBlock(encrypted + i, data_bytes + i);
-    }
+    for (int i = 0; i < 32; i += 16)
+        aes128->encryptBlock(encrypted + i, to_encrypt_bytes + i);
 }
 
 void Wallet_Manager::decrypt(byte* encrypted, char* original){
     byte decrypted[32];
-
     // Decrypt the encrypted array
-    for (int i = 0; i < 32; i += 16){
+    for (int i = 0; i < 32; i += 16)
         aes128->decryptBlock(decrypted + i, encrypted + i);
-    }
 
     // Populate the destination char array
-    for (int i = 0; i < 32; i++){
+    for (int i = 0; i < 12; i++)
         original[i] = (char) decrypted[i];
-    }
+
+    for (int i = 16; i < 28; i++)
+        original[i-4] = (char) decrypted[i];
+
+    // Pad with null terminators
+    for (int i = 24; i < 32; i++)
+        original[i] = 0;
 }
 
 int Wallet_Manager::load(){

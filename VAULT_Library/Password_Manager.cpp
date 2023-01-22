@@ -111,17 +111,17 @@ void Password_Manager::display(){
         tft->println("2:Delete");
     } else if (this->stage == 2){ // Allow user to enter new password name
         keyboard->reset();
-        keyboard->setLengthLimit(16);
+        keyboard->setLengthLimit(MAX_NAME_LEN);
         keyboard->displayPrompt("Enter new name:");
         keyboard->display();
     } else if (this->stage == 3){ // Allow user to enter new email/username
         keyboard->reset();
-        keyboard->setLengthLimit(30);
+        keyboard->setLengthLimit(MAX_USER_PWD_LEN);
         keyboard->displayPrompt("Enter new account:");
         keyboard->display();
     } else if (this->stage == 4){ // Allow user to enter new password
         keyboard->reset();
-        keyboard->setLengthLimit(30);
+        keyboard->setLengthLimit(MAX_USER_PWD_LEN);
         keyboard->displayPrompt("Enter new password:");
         keyboard->display();
     }
@@ -346,29 +346,43 @@ int Password_Manager::deleteEntry(byte* name){
     return 0;
 }
 
-// Encrypt the passed data, and store it in the aes_buffer for writing to SD
+/*
+Encrypt the passed data, and store it in the aes_buffer for writing to eeprom
+
+Format comes in as a 32 byte char* array, is split into 2 chunks, and random
+data is appended to each chunk
+*/
 void Password_Manager::encrypt(char* data, byte* encrypted){
-    // Convert char to byte array
-    byte data_bytes[32];
+    // Make sure the string has some random padding before its split and encrypted
+    int nullterm_index = 0;
+    while(data[nullterm_index] != 0)
+        nullterm_index++;
 
+    for (int i = nullterm_index + 1; i < 32; i++)
+        data[i] = random(255);
+
+    // Do the splitting
+    byte to_encrypt_bytes[32];
     int i = 0;
-    while(data[i] != 0 && i < 31){
-        data_bytes[i] = byte(data[i]);
-        i++;
-    }
+    // First chunk
+    for (; i < 12; i++)
+        to_encrypt_bytes[i] = byte(data[i]);
 
-    data_bytes[i] = 0;
-    i++;
+    // Random padding for first chunk
+    for (; i < 16; i++)
+        to_encrypt_bytes[i] = random(255);
 
-    // Random padding salt (helps hide identical passwords)
-    while (i < 32){
-        data_bytes[i] = random(255);
-        i++;
-    }
+    // Second chunk
+    for (; i < 28; i++)
+        to_encrypt_bytes[i] = byte(data[i-4]);
+
+    // Random padding for second chunk
+    for (; i < 32; i++)
+        to_encrypt_bytes[i] = random(255);
 
     // Perform encryption
     for (int i = 0; i < 32; i += 16)
-        aes128->encryptBlock(encrypted + i, data_bytes + i);
+        aes128->encryptBlock(encrypted + i, to_encrypt_bytes + i);
 }
 
 // Decrypt the passed data (loaded from SD), store in aes_buffer for storage in entry
@@ -379,8 +393,15 @@ void Password_Manager::decrypt(byte* encrypted, char* original){
         aes128->decryptBlock(decrypted + i, encrypted + i);
 
     // Populate the destination char array
-    for (int i = 0; i < 32; i++)
+    for (int i = 0; i < 12; i++)
         original[i] = (char) decrypted[i];
+
+    for (int i = 16; i < 28; i++)
+        original[i-4] = (char) decrypted[i];
+
+    // Pad with null terminators
+    for (int i = 24; i < 32; i++)
+        original[i] = 0;
 }
 
 // Starting from position passed, read and decrypt password entry into entry class

@@ -11,6 +11,8 @@
 #define PHRASE_SEP 12
 #define MAX_WALLETS 10
 #define MAX_PHRASE_COUNT 24
+#define MAX_NAME_LEN 16
+#define MAX_PHRASE_LEN 20
 
 class Wallet_Entry
 {
@@ -60,6 +62,9 @@ class Wallet_Manager
 
         int getWalletCount();
         void setWalletCount(int);
+
+        void clear();
+        void remove(Wallet_Entry*);
  
     private:
         Adafruit_ST7735* tft;
