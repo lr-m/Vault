@@ -35,23 +35,13 @@ def bad(message):
 def info(message):
     print(f"[\u001b[34m*\u001b[0m] {message}")
 
-def constructBaseJson(master, session):
-    command = {}
-    command["master"] = hashlib.sha512(bytes(master, 'utf-8')).hexdigest().upper()
-    command["type"] = 2
-
-    return command
-
-def sendCommand(json_message):
-    print(json_message)
+def connect():
     try:
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client.settimeout(5)
+        client.settimeout(10)
     except socket.error:
         bad('Failed to create socket')
         sys.exit()
-
-    good('Socket Created')
 
     ip = "192.168.0.58"
     port = 2222
@@ -61,11 +51,52 @@ def sendCommand(json_message):
     except Exception as e:
         return -1
 
-    good(f"Connected to {ip} on port {port}")
+    return client
+
+# Gets nonce from the client, decrypts with session key, and encrypts with 
+# master to send to the client with the request
+def verifyCreds(client):
+    # Request a nonce from the client
+    cmd = {}
+    cmd["req"] = "auth"
+
+    client.sendall(bytes(json.dumps(cmd), 'utf-8'))
+
+    info(f"Sending auth request")
+
+     # Get all sent data until none left
+    response = b''
+    while True:
+        data = client.recv(2048)
+
+        if not data:
+            break
+
+        response += data
+
+    json_response = json.loads(response)
+
+    good(f"Received challenge")
+
+    key_bytes = get_master_key_bytes()
+    session_key_bytes = get_session_key_bytes()
+
+    original_nonce = norm_decrypt_aes_ecb(json_response["nonce"].lower(), session_key_bytes)
+
+    encrypted_nonce = norm_encrypt_aes_ecb(original_nonce, key_bytes).hex().upper()
+
+    return encrypted_nonce
+
+def sendCommand(json_message):
+    client = connect()
+
+    json_message["token"] = verifyCreds(client)
+
+    info(f"Sending command + token")
+
+    client = connect()
 
     client.sendall(bytes(json.dumps(json_message), 'utf-8'))
-
-    info("Sent command to device")
 
     # Get all sent data until none left
     response = b''
@@ -77,9 +108,7 @@ def sendCommand(json_message):
 
         response += data
 
-    print(response)
-
-    good("Received response")
+    good(f"Received response")
 
     client.close()
 
@@ -88,21 +117,24 @@ def sendCommand(json_message):
     return response
 
 def handleCommand(command):
-    spaces = command.count(' ')
-    if spaces == 0:
-        if command in ["wlt", "pwd", "set"]:
-            bad("Invalid use of command")
-            return
-        if command in cmds.keys():
-            cmds[command]()
-            return
+    try:
+        spaces = command.count(' ')
+        if spaces == 0:
+            if command in ["wlt", "pwd", "set"]:
+                bad("Invalid use of command")
+                return
+            if command in cmds.keys():
+                cmds[command]()
+                return
 
-    # Make sure the command is in the command dict
-    if command.split(' ')[0] not in cmds.keys():
-        bad("Invalid command")
-        return
-    
-    cmds[command.split(' ')[0]](command.split(command.split(' ')[0] + ' ')[1])
+        # Make sure the command is in the command dict
+        if command.split(' ')[0] not in cmds.keys():
+            bad("Invalid command")
+            return
+        
+        cmds[command.split(' ')[0]](command.split(command.split(' ')[0] + ' ')[1])
+    except Exception as E:
+        bad(f"Error: {E}")
 
 def handlePwdCommand(command):
     # Make sure the command is in the command dict
@@ -118,8 +150,7 @@ def readPassword():
     name = rand_pad(getInput("Enter entry name:").encode('utf-8'), 32)
     print()
 
-    cmd = constructBaseJson(auth["master"], auth["session"])
-
+    cmd = {}
     cmd["type"] = 0
     cmd["name"] = encrypt_aes_ecb(name, key_bytes).hex().upper()
 
@@ -130,12 +161,8 @@ def readPassword():
 
     # Check for empty response
     if raw_response == b'':
-        bad("Empty response")
+        bad("Password read failed")
         return
-
-    # Sends '0' if password not available
-    if raw_response == b'0':
-        bad("Password does not exist on the device")
 
     # Parse the response
     response = json.loads(raw_response)
@@ -161,6 +188,20 @@ def get_master_key_bytes():
         key[i] = key_bytes[index]
         index+=1
     return key
+
+def get_session_key_bytes():
+    return auth["session"].encode()
+
+def norm_decrypt_aes_ecb(ciphertext, key):
+    if (isinstance(ciphertext, str)):
+        ciphertext = binascii.unhexlify(ciphertext)
+    cipher = AES.new(key, AES.MODE_ECB)
+    plaintext = cipher.decrypt(ciphertext)
+    return plaintext
+
+def norm_encrypt_aes_ecb(plaintext, key):
+    cipher = AES.new(key, AES.MODE_ECB)
+    return cipher.encrypt(plaintext)
 
 def decrypt_aes_ecb(ciphertext, key):
     if (isinstance(ciphertext, str)):
@@ -210,8 +251,7 @@ def addPassword():
     pwd = rand_pad(getInput("Enter password:").encode('utf-8'), 32)
     print()
 
-    cmd = constructBaseJson(auth["master"], auth["session"])
-
+    cmd = {}
     cmd["type"] = 1
     cmd["name"] = encrypt_aes_ecb(name, key_bytes).hex().upper()
     cmd["user"] = encrypt_aes_ecb(user, key_bytes).hex().upper()
@@ -231,6 +271,8 @@ def addPassword():
 
     if response["response"] == 0:
         good("Password added successfully")
+    else:
+        bad("Password add failed")
 
 def editPassword():
     key_bytes = get_master_key_bytes()
@@ -245,8 +287,7 @@ def editPassword():
     new_user_bytes = rand_pad(new_user.encode('utf-8'), 32)
     new_pwd_bytes = rand_pad(new_pwd.encode('utf-8'), 32)
 
-    cmd = constructBaseJson(auth["master"], auth["session"])
-
+    cmd = {}
     cmd["type"] = 2
     cmd["name"] = encrypt_aes_ecb(old_name_bytes, key_bytes).hex().upper()
 
@@ -273,6 +314,8 @@ def editPassword():
 
     if response["response"] == 0:
         good("Password edited successfully")
+    else:
+        bad("Password edit failed")
 
 def deletePassword():
     key_bytes = get_master_key_bytes()
@@ -280,8 +323,7 @@ def deletePassword():
     name = rand_pad(getInput("Enter entry name:").encode('utf-8'), 32)
     print()
 
-    cmd = constructBaseJson(auth["master"], auth["session"])
-
+    cmd = {}
     cmd["type"] = 3
     cmd["name"] = encrypt_aes_ecb(name, key_bytes).hex().upper()
 
@@ -299,6 +341,8 @@ def deletePassword():
 
     if response["response"] == 0:
         good("Password removed successfully")
+    else:
+        bad("Password remove failed")
 
 def handleWalletCommand(command):
     if command not in wallet_cmds.keys():
@@ -313,8 +357,7 @@ def readWallet():
     entry_name = rand_pad(getInput("Enter entry name:").encode('utf-8'), 32)
     print()
 
-    cmd = constructBaseJson(auth["master"], auth["session"])
-
+    cmd = {}
     cmd["type"] = 4
     cmd["name"] = encrypt_aes_ecb(entry_name, key_bytes).hex().upper()
 
@@ -350,8 +393,6 @@ def readWallet():
         ind+=1
 
 def addWallet():
-    print("Adding wallet")
-
     key_bytes = get_master_key_bytes()
 
     wlt_name = rand_pad(getInput("Enter wallet name:").encode('utf-8'), 32)
@@ -373,13 +414,10 @@ def addWallet():
         encrypted = encrypt_aes_ecb(padded_input, key_bytes)
         phrases.append(encrypt_aes_ecb(padded_input, key_bytes).hex().upper());
     
-    cmd = constructBaseJson(auth["master"], auth["session"])
-
+    cmd = {}
     cmd["type"] = 5
     cmd["name"] = encrypt_aes_ecb(wlt_name, key_bytes).hex().upper()
     cmd["phrases"] = json.dumps(phrases)
-
-    print(json.dumps(cmd))
 
     raw_response = sendCommand(cmd)
 
@@ -398,18 +436,18 @@ def addWallet():
     # Parse the response
     response = json.loads(raw_response)
 
-    print(response)
+    if response["response"] == 0:
+        good("Wallet added successfully")
+    else:
+        bad("Wallet add failed")
 
 def delWallet():
-    print("Deleting wallet")
-
     key_bytes = get_master_key_bytes()
 
     entry_name = rand_pad(getInput("Enter entry name:").encode('utf-8'), 32)
     print()
 
-    cmd = constructBaseJson(auth["master"], auth["session"])
-
+    cmd = {}
     cmd["type"] = 6
     cmd["name"] = encrypt_aes_ecb(entry_name, key_bytes).hex().upper()
 
@@ -430,7 +468,10 @@ def delWallet():
     # Parse the response
     response = json.loads(raw_response)
 
-    print(response)
+    if response["response"] == 0:
+        good("Wallet deleted successfully")
+    else:
+        bad("Wallet delete failed")
 
 def rand_pad(byte_input, target_size):
     padded_input = bytearray(target_size)

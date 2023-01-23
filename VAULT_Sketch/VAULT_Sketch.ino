@@ -35,7 +35,8 @@ SHA512 sha512;
 #define MAX_MASTER_LEN 15
 
 char* password;
-char* session_key;
+byte* session_key;
+byte nonce[32];
 int password_length;
 
 boolean master_key_succeed = false;
@@ -287,52 +288,78 @@ void loop(){
   delay(100);
 }
 
-int checkAuth(const char* password){
-  uint8_t saved_hash[HASH_SIZE];
-  loadHashFromEEPROM(saved_hash);
+int checkAuth(const char* token){
+  // Decrypt the token and compare against nonce
+  byte decrypted_token_bytes[32];
+  byte encrypted_token_bytes[32];
 
-  Serial.print("Free heap: ");
-  Serial.println(ESP.getFreeHeap());
+  hexStringToBytes(token, encrypted_token_bytes);
 
-  Serial.print("Incoming password hash: ");
-  Serial.println(password);
-  Serial.print("Saved password hash: ");
-  for(int i = 0; i < HASH_SIZE; i++){
-    Serial.print(saved_hash[i], HEX);
-  }
-  Serial.println();
+  // Decrypt the encrypted array
+  for (int i = 0; i < 32; i += 16)
+      aes128.decryptBlock(decrypted_token_bytes + i, encrypted_token_bytes + i);
 
-  for(int i = 0; i < HASH_SIZE; i++){
-    uint8_t saved = saved_hash[i];
-
-    char upper = hexCharValue(password[i*2]);
-    char lower = hexCharValue(password[i*2+1]);
-    
-    uint8_t seen = (uint8_t) (upper << 4 | lower);
-
-    if (saved != seen){
-      Serial.println("Authentication Failed");
+  // Check that the nonces match
+  for (int i = 0; i < 32; i++){
+    if (decrypted_token_bytes[i] != nonce[i]){
+      Serial.println("Nonce check failed");
       return -1;
     }
   }
-
-  Serial.println("Authentication succeed");
+  
+  Serial.println("Nonce check pass");
   return 0;
 }
 
 void handleSocketRequest(WiFiClient client, char* incoming){
-
   // Create and deserialise incoming json
   deserializeJson(inp_doc, incoming);
 
   // Check that a master password has been provided
-  if (inp_doc["master"].isNull())
+  if (inp_doc["req"].isNull() && inp_doc["token"].isNull())
     return;
 
-  const char* password = inp_doc["master"];
+  // Check if requesting nonce
+  if (!inp_doc["req"].isNull() && strcmp(inp_doc["req"], "auth") == 0){
+    // Generate nonce and encrypt it with the session key
+    Serial.println("Nonce:");
+    for (int i = 0; i < 32; i++){
+      nonce[i] = random(0, 255);
+      Serial.print(nonce[i]);
+      Serial.print(' ');
+    }
+    Serial.println();
+
+    // Set up a new aes session for the session key
+    AES128 aes128session;
+    aes128session.setKey(session_key, aes128session.keySize());
+
+    // Encrypt the nonce
+    byte encryptedNonce[32];
+    for (int i = 0; i < 32; i += 16)
+        aes128session.encryptBlock(encryptedNonce + i, nonce + i);
+
+    // Convert the nonce to a hex string and put in json doc
+    char encryptedNonceString [65];
+    bytesToHexString(encryptedNonce, encryptedNonceString);
+    resp_doc["nonce"] = encryptedNonceString;
+
+    // Serialise the doc and clear
+    serializeJson(resp_doc, resp_buffer, RESPONSE_BUFF_SIZE);
+    resp_doc.clear();
+
+    // Send the encrypted nonce to the client
+    client.print(resp_buffer);
+
+    return;
+  }
+
+  const char* token = inp_doc["token"];
+
+  Serial.println(token);
 
   // Check the incoming password
-  if (checkAuth(password) != 0)
+  if (checkAuth(token) != 0)
     return;
 
   // Check the message has a type
@@ -655,22 +682,20 @@ void displayRemoteInfo(){
   tft.println("\nSession Key:");
   tft.setTextColor(ST77XX_GREEN);
 
-  session_key = (char*) malloc(sizeof(char)*13);
-  session_key[12] = 0;
-  generateSessionKey(session_key, 12);
-
-  Serial.println("Generating session key");
-  Serial.println(session_key);
+  session_key = (byte*) malloc(sizeof(byte)*16);
+  generateSessionKey(session_key, 16);
   
-  tft.println(session_key);
+  for (int i = 0; i < 16; i++){
+    tft.print((char) session_key[i]);
+  }
   tft.setTextColor(ST77XX_WHITE);
 }
 
 // Generates the key for the session
-void generateSessionKey(char* key, int len){
+void generateSessionKey(byte* key, int len){
   char* possGen = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ?!=@$%#+£&*><";
   for (int i = 0; i < len; i++){
-    key[i] = possGen[random(74)];
+    key[i] = (byte) possGen[random(74)];
   }
 }
 
