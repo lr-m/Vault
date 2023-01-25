@@ -9,15 +9,18 @@
 #include "Password_Manager.h"
 #include "Wallet_Manager.h"
 
+#define BUTTON_CNT 3
+
 class ST7735_PW_Menu_Item
 {
 	public:
-		ST7735_PW_Menu_Item(Adafruit_ST7735*, const char*);
+		ST7735_PW_Menu_Item(Adafruit_ST7735*, const char*, boolean);
 		void display(int);
         void displaySelected(int);
         void displayAdd(int);
         void displayAddSelected(int);
         const char* getTitle();
+        boolean addEnabled = false;
         boolean addSelected = false;
 		
 	private:
@@ -31,6 +34,7 @@ class ST7735_PW_Menu
 		ST7735_PW_Menu(Adafruit_ST7735*);
 		void display();
         char interact(uint32_t*, Password_Manager*, Wallet_Manager*);
+        void setEntered(boolean);
 		
 	private:
 		Adafruit_ST7735* tft;

@@ -210,15 +210,15 @@ void loop(){
         }
       }
     }
-    
     return;
   }
 
   // If in remote mode, handle requests
   if (remote_mode){
     if (irrecv.decode()) {
-      if (irrecv.decodedIRData.decodedRawData == IR_ASTERISK){
+      if (irrecv.decodedIRData.decodedRawData == IR_HASHTAG){
         remote_mode = false;
+        menu->setEntered(false);
         wifiServer.stop();
         wifiServer.close();
         WiFi.disconnect();
@@ -255,7 +255,8 @@ void loop(){
   } else {
     // Menu interaction
     if (irrecv.decode()) {
-      if (irrecv.decodedIRData.decodedRawData == IR_ASTERISK){
+      char interact_return = menu->interact(&irrecv.decodedIRData.decodedRawData, password_manager, wallet_manager);
+      if (interact_return == 2){
           remote_mode = true;
           tft.setTextColor(ST77XX_WHITE);
           tft.fillScreen(SCHEME_BG);
@@ -273,7 +274,7 @@ void loop(){
           wifiServer.begin();
 
           displayRemoteInfo();
-      } else if (menu->interact(&irrecv.decodedIRData.decodedRawData, password_manager, wallet_manager) == 1){
+      } else if (interact_return == 1){
           tft.fillScreen(SCHEME_BG);
   
           tft.fillRoundRect(40, 15, 36, 30, 8, ST77XX_WHITE);
@@ -282,7 +283,7 @@ void loop(){
           menu->display();
        }
        irrecv.resume();
-     }
+    }
   }
   
   delay(100);
@@ -301,13 +302,10 @@ int checkAuth(const char* token){
 
   // Check that the nonces match
   for (int i = 0; i < 32; i++){
-    if (decrypted_token_bytes[i] != nonce[i]){
-      Serial.println("Nonce check failed");
+    if (decrypted_token_bytes[i] != nonce[i])
       return -1;
-    }
   }
-  
-  Serial.println("Nonce check pass");
+
   return 0;
 }
 
@@ -569,14 +567,8 @@ int handleWalletRead(const char* name, char* resp_buffer)
   JsonArray arr = resp_doc.to<JsonArray>();
   
   for (int i = 0; i < entry->phrase_count; i++){
-    Serial.println("Constructing entry");
-    byte tmp[WALLET_MAX_PHRASE_SIZE];
-    for (int j = 0; j < WALLET_MAX_PHRASE_SIZE; j++){
-      tmp[j] = eeprom_manager -> readExternalEEPROM(entry->start_address + WALLET_MAX_PHRASE_SIZE + 1 + (i * WALLET_MAX_PHRASE_SIZE) + j);
-    }
-
     char to_hex [65];
-    bytesToHexString(tmp, to_hex);
+    bytesToHexString(entry->getEncryptedPhrases()[i], to_hex);
     arr.add(to_hex);
   }
 
@@ -693,9 +685,9 @@ void displayRemoteInfo(){
 
 // Generates the key for the session
 void generateSessionKey(byte* key, int len){
-  char* possGen = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ?!=@$%#+£&*><";
+  char* possGen = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ?!=";
   for (int i = 0; i < len; i++){
-    key[i] = (byte) possGen[random(74)];
+    key[i] = (byte) possGen[random(64)];
   }
 }
 

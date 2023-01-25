@@ -15,10 +15,18 @@ void EEPROM_Manager::fixBusted(){
   // Init the password entry bitmasks
   for (int i = 0; i < MASK_BYTE_COUNT; i++){
     this->writeExternalEEPROM(PWD_BITMASK_START + i, 0);
-    Serial.println(this->readExternalEEPROM(PWD_BITMASK_START + i));
   }
 
   this->writeExternalEEPROM(WALLET_COUNT_ADDRESS, 0);
+
+  // Init the wallet entry bitmasks
+  for (int i = 0; i < WALLET_BITMASK_SIZE; i++){
+    this->writeExternalEEPROM(WALLET_BLOCK_BITMASK_START + i, 0);
+  }
+
+  for (int i = 0; i < 100; i++){
+    this->writeExternalEEPROM(WALLET_LAYOUT_START + i, 0xff);
+  }
 }
 
 void EEPROM_Manager::checkInit(){
@@ -132,45 +140,6 @@ int EEPROM_Manager::getNextFreeAddress(){
     }
   }
   return -1; // Indicates storage is full
-}
-
-int EEPROM_Manager::getNextFreeWalletAddress(){
-  // Get number of wallet entries
-  int count = this->readExternalEEPROM(WALLET_COUNT_ADDRESS);
-
-  // Get next free address
-  int write_address = WALLET_START_ADDRESS;
-  int size; // Entry size in terms of phrases
-
-  // Iterate over entries until end reached
-  for (int i = 0; i < count; i++){
-      size = this->readExternalEEPROM(write_address);
-
-      // Increment address by count byte, phrases, and name
-      write_address += 1 + (size*WALLET_MAX_PHRASE_SIZE) + WALLET_MAX_PHRASE_SIZE;
-  }
-
-  return write_address;
-}
-
-// Clears the EEPROM from the start_position by size
-void EEPROM_Manager::deleteWalletEntry(int start_position, int size){
-  int next_free = getNextFreeWalletAddress(); // Get end
-
-  // Shift memory down
-  for (int i = start_position + size; i < next_free; i++){
-    byte byte_ahead = this->readExternalEEPROM(i);
-    this->writeExternalEEPROM(i - size, byte_ahead);
-  }
-
-  // Clear new unused memory from the end
-  for (int i = next_free - size; i < next_free; i++){
-    this->writeExternalEEPROM(i, 255);
-  }
-
-  // Reduce the entry counter after deletion
-  int current_count = this->readExternalEEPROM(WALLET_COUNT_ADDRESS);
-  this->writeExternalEEPROM(WALLET_COUNT_ADDRESS, current_count-1);
 }
 
 // Clears the EEPROM from the start_position by size

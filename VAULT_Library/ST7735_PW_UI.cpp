@@ -1,9 +1,10 @@
 #include "ST7735_PW_UI.h"
 
 // Constructor for Key
-ST7735_PW_Menu_Item::ST7735_PW_Menu_Item(Adafruit_ST7735* display, const char* header){
+ST7735_PW_Menu_Item::ST7735_PW_Menu_Item(Adafruit_ST7735* display, const char* header, boolean addEnabled){
     this->tft = display;
     this->title = header;
+    this->addEnabled = addEnabled;
 }
 
 // Display the key
@@ -46,10 +47,11 @@ const char* ST7735_PW_Menu_Item::getTitle(){
 // Constructor for Key
 ST7735_PW_Menu::ST7735_PW_Menu(Adafruit_ST7735* display){
     this->tft = display;
-    this->items = (ST7735_PW_Menu_Item*) malloc(sizeof(ST7735_PW_Menu_Item) * 2);
+    this->items = (ST7735_PW_Menu_Item*) malloc(sizeof(ST7735_PW_Menu_Item) * BUTTON_CNT);
     this->selected_index = 0;
-    this->items[0] = ST7735_PW_Menu_Item(display, (const char *) "Passwords");
-    this->items[1] = ST7735_PW_Menu_Item(display, "Wallet Keys");
+    this->items[0] = ST7735_PW_Menu_Item(display, (const char *) "Passwords", true);
+    this->items[1] = ST7735_PW_Menu_Item(display, "Wallet Keys", true);
+    this->items[2] = ST7735_PW_Menu_Item(display, "Remote Mode", false);
 }
 
 // Interacts with the menu using ir data
@@ -79,9 +81,14 @@ char ST7735_PW_Menu::interact(uint32_t* ir_data,
     // DOWN
     if (*ir_data == IR_DOWN){ // Go to entry below
         int old = selected_index;
-        selected_index = selected_index + 1 == 2 ? 0 : selected_index + 1;
+        selected_index = selected_index + 1 == BUTTON_CNT ? 0 : selected_index + 1;
+
+        // Clear old selected
         this->items[old].display(old);
-        this->items[old].displayAdd(old);
+        if (this->items[old].addEnabled)
+            this->items[old].displayAdd(old);
+
+        // Display new selected
         this->items[selected_index].displaySelected(selected_index);
         this->items[selected_index].addSelected = false;
     }
@@ -89,23 +96,30 @@ char ST7735_PW_Menu::interact(uint32_t* ir_data,
     // UP
     if (*ir_data == IR_UP){ // Go to entry above
         int old = selected_index;
-        selected_index = selected_index - 1 == -1 ? 1 : selected_index - 1;
+        selected_index = selected_index - 1 == -1 ? BUTTON_CNT - 1 : selected_index - 1;
+        
+        // Clear old selected
         this->items[old].display(old);
-        this->items[old].displayAdd(old);
+        if (this->items[old].addEnabled)
+            this->items[old].displayAdd(old);
+        
+        // Display new selected
         this->items[selected_index].displaySelected(selected_index);
         this->items[selected_index].addSelected = false;
     }
 
     // LEFT/RIGHT
     if (*ir_data == IR_LEFT || *ir_data == IR_RIGHT){ // Select add component
-        this->items[selected_index].addSelected = !this->items[selected_index].addSelected;
+        if (this->items[selected_index].addEnabled){
+            this->items[selected_index].addSelected = !this->items[selected_index].addSelected;
 
-        if (this->items[selected_index].addSelected){
-            this->items[selected_index].display(selected_index);
-            this->items[selected_index].displayAddSelected(selected_index);
-        } else {
-            this->items[selected_index].displaySelected(selected_index);
-            this->items[selected_index].displayAdd(selected_index);
+            if (this->items[selected_index].addSelected){
+                this->items[selected_index].display(selected_index);
+                this->items[selected_index].displayAddSelected(selected_index);
+            } else {
+                this->items[selected_index].displaySelected(selected_index);
+                this->items[selected_index].displayAdd(selected_index);
+            }
         }
     }
 
@@ -124,6 +138,8 @@ char ST7735_PW_Menu::interact(uint32_t* ir_data,
                 wallet_manager->setStage(1);
             }
             wallet_manager->display();
+        } else if (this->selected_index == 2){
+            return 2;
         }
     }
   }
@@ -134,14 +150,20 @@ char ST7735_PW_Menu::interact(uint32_t* ir_data,
 void ST7735_PW_Menu::display(){
     tft->setCursor(0, 5);
     
-    for (int i = 0; i < 2; i++){
+    for (int i = 0; i < BUTTON_CNT; i++){
+        this->items[i].addSelected = false;
         tft->setCursor(10, 70 + i*20);
         if (i == this->selected_index){
             this->items[i].displaySelected(i);
         } else {
             this->items[i].display(i);
         }
-        this->items[i].displayAdd(i);
+
+        if (this->items[i].addEnabled)
+            this->items[i].displayAdd(i);
     }
 }
 
+void ST7735_PW_Menu::setEntered(boolean toSet){
+    this->entered = toSet;
+}

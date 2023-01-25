@@ -213,20 +213,6 @@ void Wallet_Manager::interact(uint32_t* ir_code){
     }
 }
 
-void Wallet_Manager::remove(Wallet_Entry* entry){
-    // Delete wallet from EEPROM
-    eeprom_manager->deleteWalletEntry(entry->start_address, WALLET_MAX_PHRASE_SIZE + 1 + entry->phrase_count * WALLET_MAX_PHRASE_SIZE);
-
-    // Clear all the wallet entries from memory
-    this->clear();
-
-    // Set the new index
-    this->selected_wallet_index = maxval(0, this->selected_wallet_index-1);
-
-    // Reload the entries
-    this->load();
-}
-
 void Wallet_Manager::clear(){
     // Clear all the wallet entries from memory
   for (int i = 0; i < MAX_WALLETS; i++){
@@ -319,78 +305,167 @@ void Wallet_Manager::decrypt(byte* encrypted, char* original){
 
 int Wallet_Manager::load(){
     int count = this->eeprom_manager->readExternalEEPROM(WALLET_COUNT_ADDRESS);
-    int position = WALLET_START_ADDRESS;
     wallet_count = 0;
 
+    // Iterate over the wallet layouts and load them into entries
+    int read_addr = WALLET_LAYOUT_START;
     for (int i = 0; i < count; i++){
+        this->entries[i].start_address = read_addr;
+        int phrase_count = this->eeprom_manager->readExternalEEPROM(read_addr);
+        int name_addr = WALLET_BLOCKS_START + this->eeprom_manager->readExternalEEPROM(read_addr + 1) * WALLET_BLOCK_SIZE;
+
         char decrypted[32];
         byte encrypted[32];
 
-        entries[wallet_count].start_address = position;
-
-        int phrase_load_count = this->eeprom_manager->readExternalEEPROM(position);
-
-        // Load the name
-        int write_address = position+1;
-
-        // Load the name from eeprom and decrypt
-        for (int i = 0; i < 32; i++){
-            encrypted[i] = this->eeprom_manager->readExternalEEPROM(write_address);
-            write_address++;
+        // Load the name and decrypt
+        for (int j = 0; j < WALLET_BLOCK_SIZE; j++){
+            encrypted[j] = this->eeprom_manager->readExternalEEPROM(name_addr);
+            name_addr++;
         }
 
         this->decrypt(encrypted, decrypted);
-
-        memcpy(entries[wallet_count].getName(), decrypted, 32);
+        memcpy(entries[i].getName(), decrypted, WALLET_BLOCK_SIZE);
 
         // Load the phrases
-        for (int i = 0; i < phrase_load_count; i++){
+        for (int j = 0; j < phrase_count; j++){
+            int phrase_addr = WALLET_BLOCKS_START + this->eeprom_manager->readExternalEEPROM(read_addr + 2 + j) * WALLET_BLOCK_SIZE;
+
             // Load the phrase from EEPROM
-            for (int j = 0; j < 32; j++){
-                encrypted[j] = this->eeprom_manager->readExternalEEPROM(write_address);
-                write_address++;
+            for (int k = 0; k < 32; k++){
+                encrypted[k] = this->eeprom_manager->readExternalEEPROM(phrase_addr);
+                phrase_addr++;
             }
 
             // Add to the entry
-            this->entries[wallet_count].addPhrase(encrypted);
+            this->entries[i].addPhrase(encrypted);
         }
 
-        wallet_count++;
-
-        position += 1 + (phrase_load_count*WALLET_MAX_PHRASE_SIZE) + WALLET_MAX_PHRASE_SIZE;
+        read_addr += (2 + phrase_count); // Incr read addr by count + name + phrase count places
     }
 
-    return wallet_count;
+    wallet_count = count;
 }
 
 void Wallet_Manager::save(Wallet_Entry* entry){
-    int write_address = this->eeprom_manager->getNextFreeWalletAddress(); // Get available address
+    int count = this->eeprom_manager->readExternalEEPROM(WALLET_COUNT_ADDRESS);
 
-    entry->start_address = write_address; // Set start address
+    // Create a new entry in the blocks
+    int layout_addr = WALLET_LAYOUT_START;
+    for (int i = 0; i < count; i++)
+        layout_addr += this->eeprom_manager->readExternalEEPROM(layout_addr) + 2; // Go to next phrase count
 
-    // Write the size of this entry (number of phrases)
-    this->eeprom_manager->writeExternalEEPROM(write_address, entry->phrase_count);
-    write_address++;
+    entry -> start_address = layout_addr;
 
-    // Write the encrypted name
-    byte encrypted[32];
-    this->encrypt(entry->getName(), encrypted);
+    // Start the layout block with the phrase count
+    this->eeprom_manager->writeExternalEEPROM(layout_addr, entry->phrase_count);
+    layout_addr++;
 
-    for (int i = 0; i < 32; i++){
-        this->eeprom_manager->writeExternalEEPROM(write_address, encrypted[i]);
-        write_address++;
-    }
+    // Find free blocks for the name and phrases using the bitmask
+    int written_count = 0;
+    for (int i = 0; i < WALLET_BITMASK_SIZE; i++){
+        // Get the byte that stores the address
+        byte mask_byte = this->eeprom_manager->readExternalEEPROM(WALLET_BLOCK_BITMASK_START + i);
+        for (int j = 0; j < 8; j++){
+            // Check each bit to see if it is free
+            if (bitRead(mask_byte, j) == 0){
+                // At this point, safe to assume that entry will fill this block, so write it to 1
+                bitSet(mask_byte, j);
+                this->eeprom_manager->writeExternalEEPROM(WALLET_BLOCK_BITMASK_START + i, mask_byte);
 
-    // Write the encrypted phrases to memory
-    for (int i = 0; i < entry->phrase_count; i++){
-        for (int j = 0; j < 32; j++){
-            this->eeprom_manager->writeExternalEEPROM(write_address, entry->getEncryptedPhrases()[i][j]);
-            write_address++;
+                int write_addr = WALLET_BLOCKS_START + ((i*8 + j) * WALLET_BLOCK_SIZE);
+
+                // If written count is 0, need to write the name
+                if (written_count == 0){
+                    // Write the encrypted name to the block
+                    byte encrypted[32];
+                    this->encrypt(entry->getName(), encrypted);
+                    for (int k = 0; k < WALLET_BLOCK_SIZE; k++){
+                        this->eeprom_manager->writeExternalEEPROM(write_addr, encrypted[k]);
+                        write_addr++;
+                    }
+                } else {
+                    // Write the encrypted entry to the block
+                    for (int k = 0; k < WALLET_BLOCK_SIZE; k++){
+                        this->eeprom_manager->writeExternalEEPROM(write_addr, entry->getEncryptedPhrases()[written_count-1][k]);
+                        write_addr++;
+                    }
+                }
+
+                // Indicate this block is for this entry
+                this->eeprom_manager->writeExternalEEPROM(layout_addr, (byte) i*8 + j);
+                layout_addr++;
+
+                // Increment written count, and check if everything has been written (also incr wallet entry count when done)
+                written_count++;
+                if (written_count == entry->phrase_count + 1){
+                    this->eeprom_manager->writeExternalEEPROM(WALLET_COUNT_ADDRESS, count+1);
+
+                    Serial.println("Count:");
+                    Serial.println(this->eeprom_manager->readExternalEEPROM(WALLET_COUNT_ADDRESS));
+                    Serial.println("\nLayout:");
+                    for (int f = 0; f < 100; f++){
+                        Serial.print(this->eeprom_manager->readExternalEEPROM(WALLET_LAYOUT_START + f));
+                        Serial.print(' ');
+                    }
+                    Serial.println("\nBlock mask:");
+                    for (int f = 0; f < WALLET_BITMASK_SIZE; f++){
+                        Serial.print(this->eeprom_manager->readExternalEEPROM(WALLET_BLOCK_BITMASK_START + f));
+                        Serial.print(' ');
+                    }
+                    Serial.println("\nBlocks:");
+                    for (int d = 0; d < 20; d++){
+                        Serial.print(d);
+                        Serial.print(". ");
+                        for (int r = 0; r < WALLET_BLOCK_SIZE; r++){
+                            Serial.print(this->eeprom_manager->readExternalEEPROM(WALLET_BLOCKS_START + (d * WALLET_BLOCK_SIZE) + r));
+                            Serial.print(' ');
+                        }
+                        Serial.print('\n');
+                    }
+
+                    return;
+                }
+            }
         }
     }
+}
 
-    int new_count = this->eeprom_manager->readExternalEEPROM(WALLET_COUNT_ADDRESS) + 1;
-    this->eeprom_manager->writeExternalEEPROM(WALLET_COUNT_ADDRESS, new_count);
+void Wallet_Manager::remove(Wallet_Entry* entry){
+    int wallet_count = this->eeprom_manager->readExternalEEPROM(WALLET_COUNT_ADDRESS);
+    
+    // Free the blocks
+    int phrase_count = this->eeprom_manager->readExternalEEPROM(entry->start_address);
+    for (int i = 0; i < phrase_count + 1; i++){
+        // Clear the bitmask element
+        int block = this->eeprom_manager->readExternalEEPROM(entry->start_address + 1 + i);
+        int mask_byte = this->eeprom_manager->readExternalEEPROM(WALLET_BLOCK_BITMASK_START + (int) block / 8);
+        bitClear(mask_byte, block % 8);
+        this->eeprom_manager->writeExternalEEPROM(WALLET_BLOCK_BITMASK_START + (int) block / 8, mask_byte);
+    }
+
+    // Free the layout space (and move everything after it back down)
+    int layout_end_addr = WALLET_LAYOUT_START;
+    int entry_size = phrase_count + 2;
+    for (int i = 0; i < wallet_count; i++)
+        layout_end_addr += this->eeprom_manager->readExternalEEPROM(layout_end_addr) + 2; // Go to next phrase count
+
+    // Shift everything after down
+    for (int i = 0; i < layout_end_addr - entry->start_address; i++){
+        byte ahead = this->eeprom_manager->readExternalEEPROM(entry->start_address + entry_size + i);
+        this->eeprom_manager->writeExternalEEPROM(entry->start_address + i, ahead);
+    }
+
+    // Clear the end
+    for (int i = layout_end_addr - entry_size; i < layout_end_addr; i++)
+        this->eeprom_manager->writeExternalEEPROM(i, 0xff);
+
+    // Reduce the entry counter after deletion
+    this->eeprom_manager->writeExternalEEPROM(WALLET_COUNT_ADDRESS, wallet_count-1);
+
+    // Clear and reload entries / set new index
+    this->clear();
+    this->selected_wallet_index = maxval(0, this->selected_wallet_index-1);
+    this->load();
 }
 
 void Wallet_Manager::setStage(int stage){
@@ -405,9 +480,8 @@ Wallet_Entry* Wallet_Manager::getEntry(byte* name){
     int count = this->eeprom_manager->readExternalEEPROM(WALLET_COUNT_ADDRESS);
 
     for (int i = 0; i < count; i++){
-        if (strcmp(this->entries[i].getName(), decrypted_name) == 0){
+        if (strcmp(this->entries[i].getName(), decrypted_name) == 0)
             return this->entries + i;
-        }
     }
     return NULL;
 }

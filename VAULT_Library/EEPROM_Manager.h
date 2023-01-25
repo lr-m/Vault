@@ -8,11 +8,18 @@
 #define EEPROM_PW_ENTRY_SIZE 96 // Each entry takes up 96 bytes (IN HEX)
 #define MASK_BYTE_COUNT 32
 #define PWD_BITMASK_START 5
-#define EEPROM_SIZE 32600
+#define EEPROM_SIZE 32768
 
 #define WALLET_COUNT_ADDRESS 24614
 #define WALLET_START_ADDRESS 24615
-#define WALLET_MAX_PHRASE_SIZE 32
+
+#define WALLET_LAYOUT_START 24615
+#define WALLET_BLOCK_BITMASK_START 24880
+#define WALLET_BITMASK_SIZE 30
+#define WALLET_BLOCKS_START 24920
+#define WALLET_BLOCK_SIZE 32
+
+#define WALLET_MAX_PHRASE_SIZE 24
 
 #define minval(a,b) \
    ({ __typeof__ (a) _a = (a); \
@@ -34,8 +41,6 @@ class EEPROM_Manager{
         byte readExternalEEPROM(int);
         void loadCredentialsFromEEPROM();
         int getNextFreeAddress();
-        int getNextFreeWalletAddress();
-        void deleteWalletEntry(int, int);
         void wipe();
         void init();
         void checkInit();
