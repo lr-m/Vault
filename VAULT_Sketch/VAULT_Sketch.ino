@@ -3,6 +3,7 @@
 #include <SPI.h>
 #include <IRremote.h>
 #include <AES.h>
+#include <CTR.h>
 #include <SHA512.h>
 #include <string.h>
 #include <ST7735_PW_Keyboard.h>
@@ -14,8 +15,8 @@
 #include <VAULT_IR_CODES.h>
 #include "base64.hpp"
 
-#define INPUT_BUFF_SIZE 1400
-#define RESPONSE_BUFF_SIZE 1400
+#define BUFF_SIZE 1840
+#define MAX_BUFF_TXT_LEN 1376
 
 // Define PIN config
 #define RECV_PIN  2 // D4
@@ -63,11 +64,13 @@ const char* wifi_pwd =  "Th15WiFi1554f3";
 
 WiFiServer wifiServer(2222);
 
-DynamicJsonDocument resp_doc(RESPONSE_BUFF_SIZE + 100);
-char resp_buffer[RESPONSE_BUFF_SIZE];
+DynamicJsonDocument resp_doc(BUFF_SIZE);
+char resp_buffer[BUFF_SIZE];
 
-DynamicJsonDocument inp_doc(INPUT_BUFF_SIZE + 100);
-char inp_buffer[INPUT_BUFF_SIZE];
+DynamicJsonDocument inp_doc(BUFF_SIZE);
+char inp_buffer[BUFF_SIZE];
+
+boolean expecting_cmd = false;
 
 void setup(){
   EEPROM.begin(512);
@@ -239,15 +242,21 @@ void loop(){
 
     if (client) {
       int i = 0;
+      // Read available data from client
       if (client.connected()) {
-        while (client.available() > 0 && i < INPUT_BUFF_SIZE - 1) {
+        while (client.available() > 0 && i < BUFF_SIZE - 1) {
           char c = client.read();
           inp_buffer[i] = c;
           i++;
         }
         inp_buffer[i] = '\0';
 
-        handleSocketRequest(client, inp_buffer);
+        // Handle the socket request
+        if (!expecting_cmd){
+          handleAuth(client, inp_buffer);
+        } else {
+          handleCommand(client, inp_buffer);
+        }
       }
 
       client.stop();
@@ -310,30 +319,38 @@ int checkAuth(const char* token){
   return 0;
 }
 
-void handleSocketRequest(WiFiClient client, char* incoming){
-  // Create and deserialise incoming json
-  deserializeJson(inp_doc, incoming);
+void handleAuth(WiFiClient client, char* incoming){
+  expecting_cmd = false;
 
-  // Create session key AES instance
-  AES128 aes128session;
-  aes128session.setKey(session_key, aes128session.keySize());
+  // Create and deserialise incoming json, check for errors
+  DeserializationError error = deserializeJson(inp_doc, incoming);
 
-  // Check that a master password has been provided
-  if (inp_doc["req"].isNull() && inp_doc["token"].isNull())
-    return;
+  switch (error.code()) {
+    // If this the json deseralized correctly, then its not encrypted so is an auth request
+    case DeserializationError::Ok:
+        Serial.print(F("Deserialization succeeded"));
+        break;
+    case DeserializationError::InvalidInput:
+        Serial.print(F("Invalid input!"));
+        return;
+    case DeserializationError::NoMemory:
+        Serial.print(F("Not enough memory"));
+        return;
+    default:
+        Serial.print(F("Deserialization failed"));
+        return;
+  }
 
   // Check if requesting nonce
   if (!inp_doc["req"].isNull() && strcmp(inp_doc["req"], "auth") == 0){
     // Generate nonce and encrypt it with the session key
-    Serial.println("Nonce:");
-    for (int i = 0; i < 32; i++){
+    for (int i = 0; i < 32; i++)
       nonce[i] = random(0, 255);
-      Serial.print(nonce[i]);
-      Serial.print(' ');
-    }
-    Serial.println();
 
-    // Encrypt the nonce
+    // Create session key AES instance to encrypt the nonce
+    AES128 aes128session;
+    aes128session.setKey(session_key, aes128session.keySize());
+    
     byte encryptedNonce[32];
     for (int i = 0; i < 32; i += 16)
         aes128session.encryptBlock(encryptedNonce + i, nonce + i);
@@ -344,15 +361,40 @@ void handleSocketRequest(WiFiClient client, char* incoming){
     resp_doc["nonce"] = encryptedNonceString;
 
     // Serialise the doc and clear
-    serializeJson(resp_doc, resp_buffer, RESPONSE_BUFF_SIZE);
+    serializeJson(resp_doc, resp_buffer, BUFF_SIZE);
     resp_doc.clear();
 
     // Send the encrypted nonce to the client
     client.print(resp_buffer);
 
+    expecting_cmd = true;
+
     return;
   }
+}
 
+void handleCommand(WiFiClient client, char* incoming){
+  expecting_cmd = false;
+
+  // Create and deserialise incoming json, check for errors
+  DeserializationError error = deserializeJson(inp_doc, incoming);
+
+  switch (error.code()) {
+    // If this the json deseralized correctly, then its not encrypted so is an auth request
+    case DeserializationError::Ok:
+        Serial.print(F("Deserialization succeeded"));
+        break;
+    case DeserializationError::InvalidInput:
+        Serial.print(F("Invalid input!"));
+        return;
+    case DeserializationError::NoMemory:
+        Serial.print(F("Not enough memory"));
+        return;
+    default:
+        Serial.print(F("Deserialization failed"));
+        return;
+  }
+  
   const char* token = inp_doc["token"];
 
   Serial.println(token);
@@ -442,6 +484,7 @@ void handleSocketRequest(WiFiClient client, char* incoming){
       break;
   }
 
+  resp_doc.clear();
   inp_doc.clear();
 }
 
@@ -453,9 +496,7 @@ int handlePasswordRemove(const char* enc_name, char* resp_buffer){
 
   resp_doc["response"] = response;
 
-  serializeJson(resp_doc, resp_buffer, RESPONSE_BUFF_SIZE);
-
-  resp_doc.clear();
+  serializeJson(resp_doc, resp_buffer, BUFF_SIZE);
 
   return response;
 }
@@ -463,7 +504,13 @@ int handlePasswordRemove(const char* enc_name, char* resp_buffer){
 // Handles remote password information request
 int handlePasswordRead(const char* enc_name, char* resp_buffer)
 {
-  // Get entry
+  // Init the AES CTR cipher for encrypting with the session key
+  CTR<AES128> aes_ctr_session;
+  aes_ctr_session.setKey(session_key, aes_ctr_session.keySize());
+  aes_ctr_session.setIV(nonce, 16);
+  aes_ctr_session.setCounterSize(8);
+
+  // Get entry details
   byte enc_name_bytes[32];
   base64ToBytes(enc_name, enc_name_bytes);
   Password_Entry* entry = password_manager->getEntry(enc_name_bytes);
@@ -471,6 +518,7 @@ int handlePasswordRead(const char* enc_name, char* resp_buffer)
   if (entry == NULL)
     return -1;
   
+  // Encode and encrypt the entry details
   char encryptedUsername [50];
   bytesToBase64(entry->getEncryptedEmail(), encryptedUsername, 32);
   resp_doc["username"] = encryptedUsername;
@@ -479,9 +527,19 @@ int handlePasswordRead(const char* enc_name, char* resp_buffer)
   bytesToBase64(entry->getEncryptedPassword(), encryptedPassword, 32);
   resp_doc["password"] = encryptedPassword;
 
-  serializeJson(resp_doc, resp_buffer, RESPONSE_BUFF_SIZE);
+  // Clear out the input buffer
+  for (int i = 0; i < BUFF_SIZE; i++)
+    inp_buffer[i] = 0;
 
-  resp_doc.clear();
+  // Serialize to the input buffer
+  serializeJson(resp_doc, inp_buffer, MAX_BUFF_TXT_LEN);
+
+  // Encrypt the contents of the input buffer with AES CTR (only needs the max txt size)
+  aes_ctr_session.encrypt((byte*) inp_buffer, (byte*) inp_buffer, MAX_BUFF_TXT_LEN);
+
+  // Base64 encode the buffer, and write this to the response buffer
+  int base64len = bytesToBase64((byte*) inp_buffer, resp_buffer, MAX_BUFF_TXT_LEN);
+  resp_buffer[base64len] = 0;
 
   return 0;
 }
@@ -500,9 +558,7 @@ int handlePasswordWrite(const char* name, const char* user, const char* pwd, cha
 
   resp_doc["response"] = response;
 
-  serializeJson(resp_doc, resp_buffer, RESPONSE_BUFF_SIZE);
-
-  resp_doc.clear();
+  serializeJson(resp_doc, resp_buffer, BUFF_SIZE);
   
   return response;
 }
@@ -549,9 +605,7 @@ int handlePasswordEdit(const char* old_name, const char* name, const char* user,
 
   resp_doc["response"] = 0;
 
-  serializeJson(resp_doc, resp_buffer, RESPONSE_BUFF_SIZE);
-
-  resp_doc.clear();
+  serializeJson(resp_doc, resp_buffer, BUFF_SIZE);
   
   return 0;
 }
@@ -559,6 +613,12 @@ int handlePasswordEdit(const char* old_name, const char* name, const char* user,
 // Handles remote password information request
 int handleWalletRead(const char* name, char* resp_buffer)
 {
+  // Init the AES CTR cipher for encrypting with the session key
+  CTR<AES128> aes_ctr_session;
+  aes_ctr_session.setKey(session_key, aes_ctr_session.keySize());
+  aes_ctr_session.setIV(nonce, 16);
+  aes_ctr_session.setCounterSize(8);
+
   byte enc_name_bytes[32];
   base64ToBytes(name, enc_name_bytes);
   Wallet_Entry* entry = wallet_manager->getEntry(enc_name_bytes);
@@ -573,9 +633,19 @@ int handleWalletRead(const char* name, char* resp_buffer)
     arr.add(to_hex);
   }
 
-  serializeJson(resp_doc, resp_buffer, RESPONSE_BUFF_SIZE);
+  // Clear out the input buffer
+  for (int i = 0; i < BUFF_SIZE; i++)
+    inp_buffer[i] = 0;
 
-  resp_doc.clear();
+  // Serialize to the input buffer
+  serializeJson(resp_doc, inp_buffer, MAX_BUFF_TXT_LEN);
+
+  // Encrypt the contents of the input buffer with AES CTR (only needs the max txt size)
+  aes_ctr_session.encrypt((byte*) inp_buffer, (byte*) inp_buffer, MAX_BUFF_TXT_LEN);
+
+  // Base64 encode the buffer, and write this to the response buffer
+  int base64len = bytesToBase64((byte*) inp_buffer, resp_buffer, MAX_BUFF_TXT_LEN);
+  resp_buffer[base64len] = 0;
 
   return 0;
 }
@@ -608,14 +678,10 @@ int handleWalletAdd(const char* name, const char* phrases, char* resp_buffer){
 
   wallet_manager->save(entry);
   wallet_manager->setWalletCount(wallet_manager->getWalletCount()+1);
-
-  resp_doc.clear();
   
   resp_doc["response"] = 0;
 
-  serializeJson(resp_doc, resp_buffer, RESPONSE_BUFF_SIZE);
-
-  resp_doc.clear();
+  serializeJson(resp_doc, resp_buffer, BUFF_SIZE);
 
   return 0;
 }
@@ -631,16 +697,14 @@ int handleWalletDel(const char* name, char* resp_buffer){
 
   resp_doc["response"] = 0;
 
-  serializeJson(resp_doc, resp_buffer, RESPONSE_BUFF_SIZE);
-
-  resp_doc.clear();
+  serializeJson(resp_doc, resp_buffer, BUFF_SIZE);
 
   return 0;
 }
 
 // Converts a string of bytes, to a base64 char array
-void bytesToBase64(byte* bytes, char* base64String, int input_len){
-  encode_base64(bytes, input_len, (unsigned char*) base64String);
+int bytesToBase64(byte* bytes, char* base64String, int input_len){
+  return encode_base64(bytes, input_len, (unsigned char*) base64String);
 }
 
 // Converts a base64 string, to an array of bytes
