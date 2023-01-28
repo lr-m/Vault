@@ -201,6 +201,13 @@ void Password_Manager::interact(uint32_t* ir_data){
             this->display();
         }
     } else if (this->stage == 2){ // Allow user to enter new password name
+        // Allow user to cancel
+        if (*ir_data == IR_ASTERISK){
+            stage = 0;
+            this->display();
+            return;
+        }
+        
         keyboard->interact(ir_data);
 
         if (keyboard -> enterPressed()){
@@ -213,6 +220,13 @@ void Password_Manager::interact(uint32_t* ir_data){
             this->display();
         }
     } else if (this->stage == 3){ // Allow user to enter new email/username
+        // Allow user to cancel
+        if (*ir_data == IR_ASTERISK){
+            stage = 0;
+            this->display();
+            return;
+        }
+
         keyboard->interact(ir_data);
 
         if (keyboard -> enterPressed()){
@@ -227,6 +241,14 @@ void Password_Manager::interact(uint32_t* ir_data){
             this->display();
         }
     } else if (this->stage == 4){ // Allow user to enter new password
+        
+        // Allow user to cancel
+        if (*ir_data == IR_ASTERISK){
+            stage = 0;
+            this->display();
+            return;
+        }
+
         keyboard->interact(ir_data);
 
         if (keyboard -> enterPressed()){

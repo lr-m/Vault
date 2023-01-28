@@ -9,7 +9,7 @@
 
 #define PHRASES_PER_PAGE 10
 #define PHRASE_SEP 12
-#define MAX_WALLETS 10
+#define MAX_WALLETS 8
 #define MAX_PHRASE_COUNT 24
 #define MAX_NAME_LEN 16
 #define MAX_PHRASE_LEN 20

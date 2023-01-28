@@ -41,7 +41,6 @@ void Wallet_Manager::display(){
         // Draw the phrases on the screen
         for (int i = start_wallet_display_index; i < minval(start_wallet_display_index + PHRASES_PER_PAGE, this->entries[selected_wallet_index].phrase_count); i++){
            
-            
             // Decrypt phrase when needed
             char decrypted[32];
             this->decrypt(this->entries[selected_wallet_index].getEncryptedPhrases()[i], decrypted);
@@ -144,6 +143,14 @@ void Wallet_Manager::interact(uint32_t* ir_code){
             }
         }
     } else if (stage == 1){
+        // Allow user to cancel
+        if (*ir_code == IR_ASTERISK){
+            current_phrases_added = 0;
+            stage = 0;
+            this->display();
+            return;
+        }
+
         keyboard->interact(ir_code);
 
         if (keyboard -> enterPressed()){
@@ -153,6 +160,14 @@ void Wallet_Manager::interact(uint32_t* ir_code){
             this->display();
         }
     } else if (stage == 2){
+        // Allow user to cancel
+        if (*ir_code == IR_ASTERISK){
+            current_phrases_added = 0;
+            stage = 0;
+            this->display();
+            return;
+        }
+
         if (*ir_code == IR_DOWN && new_phrase_count - 1 > 0){
             new_phrase_count--;
 
@@ -190,6 +205,14 @@ void Wallet_Manager::interact(uint32_t* ir_code){
             this->display();
         }
     } else if (stage == 3){
+        // Allow user to cancel
+        if (*ir_code == IR_ASTERISK){
+            current_phrases_added = 0;
+            stage = 0;
+            this->display();
+            return;
+        }
+
         keyboard->interact(ir_code);
 
         if (keyboard -> enterPressed()){

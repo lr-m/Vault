@@ -9,6 +9,7 @@ from Crypto.Cipher import AES
 from enum import IntEnum
 import json
 import binascii
+import base64
 from Crypto.Util.Padding import pad, unpad
 
 BLOCK_SIZE = 16
@@ -62,19 +63,24 @@ def verifyCreds(client):
 
     client.sendall(bytes(json.dumps(cmd), 'utf-8'))
 
-    info(f"Sending auth request")
+    try:
+        info(f"Sending auth request")
 
-     # Get all sent data until none left
-    response = b''
-    while True:
-        data = client.recv(2048)
+        # Get all sent data until none left
+        response = b''
+        while True:
+            data = client.recv(2048)
 
-        if not data:
-            break
+            if not data:
+                break
 
-        response += data
+            response += data
 
-    json_response = json.loads(response)
+        print(response)
+
+        json_response = json.loads(response)
+    except Exception as e:
+        bad(str(e))
 
     good(f"Received challenge")
 
@@ -152,7 +158,7 @@ def readPassword():
 
     cmd = {}
     cmd["type"] = 0
-    cmd["name"] = encrypt_aes_ecb(name, key_bytes).hex().upper()
+    cmd["name"] = base64.b64encode(encrypt_aes_ecb(name, key_bytes)).decode('ascii')
 
     raw_response = sendCommand(cmd)
 
@@ -168,9 +174,9 @@ def readPassword():
     response = json.loads(raw_response)
 
     key_bytes = get_master_key_bytes()
-
-    username = decrypt_aes_ecb(response["username"].lower(), key_bytes)
-    password = decrypt_aes_ecb(response["password"].lower(), key_bytes)
+    
+    username = decrypt_aes_ecb(base64.b64decode(response["username"].encode('ascii')), key_bytes)
+    password = decrypt_aes_ecb(base64.b64decode(response["password"].encode('ascii')), key_bytes)
 
     good("Decrypted response\n")
 
@@ -253,9 +259,9 @@ def addPassword():
 
     cmd = {}
     cmd["type"] = 1
-    cmd["name"] = encrypt_aes_ecb(name, key_bytes).hex().upper()
-    cmd["user"] = encrypt_aes_ecb(user, key_bytes).hex().upper()
-    cmd["pwd"] = encrypt_aes_ecb(pwd, key_bytes).hex().upper()
+    cmd["name"] = base64.b64encode(encrypt_aes_ecb(name, key_bytes)).decode('ascii')
+    cmd["user"] = base64.b64encode(encrypt_aes_ecb(user, key_bytes)).decode('ascii')
+    cmd["pwd"] = base64.b64encode(encrypt_aes_ecb(pwd, key_bytes)).decode('ascii')
 
     raw_response = sendCommand(cmd)
 
@@ -289,16 +295,15 @@ def editPassword():
 
     cmd = {}
     cmd["type"] = 2
-    cmd["name"] = encrypt_aes_ecb(old_name_bytes, key_bytes).hex().upper()
-
+    cmd["name"] = base64.b64encode(encrypt_aes_ecb(old_name_bytes, key_bytes)).decode('ascii')
     if not new_name == '':
-        cmd["new_name"] = encrypt_aes_ecb(new_name_bytes, key_bytes).hex().upper()
+        cmd["new_name"] = base64.b64encode(encrypt_aes_ecb(new_name_bytes, key_bytes)).decode('ascii')
     
     if not new_user == '':
-        cmd["new_user"] = encrypt_aes_ecb(new_user_bytes, key_bytes).hex().upper()
+        cmd["new_user"] = base64.b64encode(encrypt_aes_ecb(new_user_bytes, key_bytes)).decode('ascii')
 
     if not new_pwd == '':
-        cmd["new_pwd"] = encrypt_aes_ecb(new_pwd_bytes, key_bytes).hex().upper()
+        cmd["new_pwd"] = base64.b64encode(encrypt_aes_ecb(new_pwd_bytes, key_bytes)).decode('ascii')
 
     raw_response = sendCommand(cmd)
 
@@ -325,7 +330,7 @@ def deletePassword():
 
     cmd = {}
     cmd["type"] = 3
-    cmd["name"] = encrypt_aes_ecb(name, key_bytes).hex().upper()
+    cmd["name"] = base64.b64encode(encrypt_aes_ecb(name, key_bytes)).decode('ascii')
 
     raw_response = sendCommand(cmd)
 
@@ -359,7 +364,7 @@ def readWallet():
 
     cmd = {}
     cmd["type"] = 4
-    cmd["name"] = encrypt_aes_ecb(entry_name, key_bytes).hex().upper()
+    cmd["name"] = base64.b64encode(encrypt_aes_ecb(entry_name, key_bytes)).decode('ascii')
 
     raw_response = sendCommand(cmd)
 
@@ -375,7 +380,9 @@ def readWallet():
     if raw_response == b'0':
         bad("Wallet does not exist on the device")
 
-    # Parse the response
+    session_key_bytes = get_session_key_bytes()
+    session_cipher = AES.new(session_key_bytes, AES.MODE_ECB)
+
     response = json.loads(raw_response)
 
     key_bytes = get_master_key_bytes()
@@ -383,7 +390,7 @@ def readWallet():
     phrases = []
 
     for phrase in response:
-        phrases.append(decrypt_aes_ecb(phrase.lower(), key_bytes))
+        phrases.append(decrypt_aes_ecb(base64.b64decode(phrase.encode('ascii')), key_bytes))
 
     good("Decrypted response\n")
 
@@ -411,12 +418,11 @@ def addWallet():
         padded_input = rand_pad(byte_input, 32)
 
         # Encrypt and append
-        encrypted = encrypt_aes_ecb(padded_input, key_bytes)
-        phrases.append(encrypt_aes_ecb(padded_input, key_bytes).hex().upper());
+        phrases.append(base64.b64encode(encrypt_aes_ecb(padded_input, key_bytes)).decode('ascii'));
     
     cmd = {}
     cmd["type"] = 5
-    cmd["name"] = encrypt_aes_ecb(wlt_name, key_bytes).hex().upper()
+    cmd["name"] = base64.b64encode(encrypt_aes_ecb(wlt_name, key_bytes)).decode('ascii')
     cmd["phrases"] = json.dumps(phrases)
 
     raw_response = sendCommand(cmd)
@@ -449,7 +455,7 @@ def delWallet():
 
     cmd = {}
     cmd["type"] = 6
-    cmd["name"] = encrypt_aes_ecb(entry_name, key_bytes).hex().upper()
+    cmd["name"] = base64.b64encode(encrypt_aes_ecb(entry_name, key_bytes)).decode('ascii')
 
     raw_response = sendCommand(cmd)
 
