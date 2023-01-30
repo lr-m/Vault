@@ -255,7 +255,7 @@ void loop(){
         if (!expecting_cmd){
           handleAuth(client, inp_buffer);
         } else {
-          handleCommand(client, inp_buffer);
+          handleCommand(client, inp_buffer, i);
         }
       }
 
@@ -373,11 +373,33 @@ void handleAuth(WiFiClient client, char* incoming){
   }
 }
 
-void handleCommand(WiFiClient client, char* incoming){
+void handleCommand(WiFiClient client, char* incoming, int len){
   expecting_cmd = false;
 
+  Serial.println(len);
+
+  Serial.println(incoming);
+
+  // Init the AES CTR cipher for encrypting with the session key
+  CTR<AES128> aes_ctr_session;
+  aes_ctr_session.setKey(session_key, aes_ctr_session.keySize());
+  aes_ctr_session.setIV(nonce, 16);
+  aes_ctr_session.setCounterSize(8);
+
+  base64ToBytes(incoming, (byte*) resp_buffer);
+
+  aes_ctr_session.decrypt((byte*) inp_buffer, (byte*) resp_buffer, len);
+
+  for (int i = 0; i < 32; i++){
+    Serial.print(nonce[i]);
+    Serial.print(' ');
+  }
+  Serial.println();
+
+  Serial.println(inp_buffer);
+
   // Create and deserialise incoming json, check for errors
-  DeserializationError error = deserializeJson(inp_doc, incoming);
+  DeserializationError error = deserializeJson(inp_doc, inp_buffer);
 
   switch (error.code()) {
     // If this the json deseralized correctly, then its not encrypted so is an auth request
@@ -394,7 +416,7 @@ void handleCommand(WiFiClient client, char* incoming){
         Serial.print(F("Deserialization failed"));
         return;
   }
-  
+
   const char* token = inp_doc["token"];
 
   Serial.println(token);
@@ -406,30 +428,25 @@ void handleCommand(WiFiClient client, char* incoming){
   // Check the message has a type
   if (inp_doc["type"].isNull())
     return;
-
+  
   // Pass to the respective handlers
   uint8_t type = (uint8_t) inp_doc["type"];
   switch(type){
     case 0:
-      Serial.println("Reading password entry");
       if (!inp_doc["name"].isNull()){
         delay(random(250, 500));
-        if (handlePasswordRead(inp_doc["name"], resp_buffer) == 0){
+        if (handlePasswordRead(inp_doc["name"], resp_buffer, &aes_ctr_session) == 0)
           client.print(resp_buffer);
-        }
       }
       break;
     case 1:
-      Serial.println("Adding password entry");
       if (!inp_doc["name"].isNull() && !inp_doc["user"].isNull() && !inp_doc["pwd"].isNull()){
         delay(random(250, 500));
-        if (handlePasswordWrite(inp_doc["name"], inp_doc["user"], inp_doc["pwd"], resp_buffer) == 0){
+        if (handlePasswordWrite(inp_doc["name"], inp_doc["user"], inp_doc["pwd"], resp_buffer, &aes_ctr_session) == 0)
           client.print(resp_buffer);
-        }
       }
       break;
     case 2:
-      Serial.println("Editing password entry");
       if (!inp_doc["name"].isNull()){
         delay(random(250, 500));
         const char* new_name = NULL;
@@ -444,39 +461,35 @@ void handleCommand(WiFiClient client, char* incoming){
         if (!inp_doc["new_pwd"].isNull())
           new_pwd = inp_doc["new_pwd"];
           
-        if (handlePasswordEdit(inp_doc["name"], new_name, new_user, new_pwd, resp_buffer) == 0)
+        if (handlePasswordEdit(inp_doc["name"], new_name, new_user, new_pwd, resp_buffer, &aes_ctr_session) == 0)
           client.print(resp_buffer);
       }
       break;
     case 3:
-      Serial.println("Deleting password entry");
       if (!inp_doc["name"].isNull()){
         delay(random(250, 500));
-        if (handlePasswordRemove(inp_doc["name"], resp_buffer) == 0)
+        if (handlePasswordRemove(inp_doc["name"], resp_buffer, &aes_ctr_session) == 0)
           client.print(resp_buffer);
       }
       break;
     case 4:
-      Serial.println("Reading wallet entry");
       if (!inp_doc["name"].isNull()){
         delay(random(250, 500));
-        if (handleWalletRead(inp_doc["name"], resp_buffer) == 0)
+        if (handleWalletRead(inp_doc["name"], resp_buffer, &aes_ctr_session) == 0)
           client.print(resp_buffer);
       }
       break;
     case 5:
-      Serial.println("Adding wallet entry");
       if (!inp_doc["name"].isNull()){
         delay(random(250, 500));
-        if (handleWalletAdd(inp_doc["name"], inp_doc["phrases"], resp_buffer) == 0)
+        if (handleWalletAdd(inp_doc["name"], inp_doc["phrases"], resp_buffer, &aes_ctr_session) == 0)
           client.print(resp_buffer);
       }
       break;
     case 6:
-      Serial.println("Deleting wallet entry");
       if (!inp_doc["name"].isNull()){
         delay(random(250, 500));
-        if (handleWalletDel(inp_doc["name"], resp_buffer) == 0)
+        if (handleWalletDel(inp_doc["name"], resp_buffer, &aes_ctr_session) == 0)
           client.print(resp_buffer);
       }
       break;
@@ -489,27 +502,21 @@ void handleCommand(WiFiClient client, char* incoming){
 }
 
 // Handles remote password removal
-int handlePasswordRemove(const char* enc_name, char* resp_buffer){
+int handlePasswordRemove(const char* enc_name, char* resp_buffer, CTR<AES128>* aes){
   byte enc_name_bytes[32];
   base64ToBytes(enc_name, enc_name_bytes);
   int response = password_manager->deleteEntry(enc_name_bytes);
 
   resp_doc["response"] = response;
 
-  serializeJson(resp_doc, resp_buffer, BUFF_SIZE);
+  serializeAndEncrypt(resp_doc, resp_buffer, aes);
 
   return response;
 }
 
 // Handles remote password information request
-int handlePasswordRead(const char* enc_name, char* resp_buffer)
+int handlePasswordRead(const char* enc_name, char* resp_buffer, CTR<AES128>* aes)
 {
-  // Init the AES CTR cipher for encrypting with the session key
-  CTR<AES128> aes_ctr_session;
-  aes_ctr_session.setKey(session_key, aes_ctr_session.keySize());
-  aes_ctr_session.setIV(nonce, 16);
-  aes_ctr_session.setCounterSize(8);
-
   // Get entry details
   byte enc_name_bytes[32];
   base64ToBytes(enc_name, enc_name_bytes);
@@ -527,25 +534,32 @@ int handlePasswordRead(const char* enc_name, char* resp_buffer)
   bytesToBase64(entry->getEncryptedPassword(), encryptedPassword, 32);
   resp_doc["password"] = encryptedPassword;
 
-  // Clear out the input buffer
-  for (int i = 0; i < BUFF_SIZE; i++)
-    inp_buffer[i] = 0;
-
-  // Serialize to the input buffer
-  serializeJson(resp_doc, inp_buffer, MAX_BUFF_TXT_LEN);
-
-  // Encrypt the contents of the input buffer with AES CTR (only needs the max txt size)
-  aes_ctr_session.encrypt((byte*) inp_buffer, (byte*) inp_buffer, MAX_BUFF_TXT_LEN);
-
-  // Base64 encode the buffer, and write this to the response buffer
-  int base64len = bytesToBase64((byte*) inp_buffer, resp_buffer, MAX_BUFF_TXT_LEN);
-  resp_buffer[base64len] = 0;
+  serializeAndEncrypt(resp_doc, resp_buffer, aes);
 
   return 0;
 }
 
+void serializeAndEncrypt(DynamicJsonDocument document, char* output_buffer, CTR<AES128>* aes){
+  // Clear out the input buffer
+  for (int i = 0; i < BUFF_SIZE; i++)
+    inp_buffer[i] = 0;
+
+  // Reset the aes session
+  aes->setIV(nonce, 16);
+
+  // Serialize to the input buffer
+  serializeJson(document, inp_buffer, MAX_BUFF_TXT_LEN);
+
+  // Encrypt the contents of the input buffer with AES CTR (only needs the max txt size)
+  aes->encrypt((byte*) inp_buffer, (byte*) inp_buffer, MAX_BUFF_TXT_LEN);
+
+  // Base64 encode the buffer, and write this to the response buffer
+  int base64len = bytesToBase64((byte*) inp_buffer, output_buffer, MAX_BUFF_TXT_LEN);
+  resp_buffer[base64len] = 0;
+}
+
 // Handles remote password write
-int handlePasswordWrite(const char* name, const char* user, const char* pwd, char* resp_buffer){
+int handlePasswordWrite(const char* name, const char* user, const char* pwd, char* resp_buffer, CTR<AES128>* aes){
   byte encrypted_name[32];
   byte encrypted_user[32];
   byte encrypted_pwd[32];
@@ -558,13 +572,13 @@ int handlePasswordWrite(const char* name, const char* user, const char* pwd, cha
 
   resp_doc["response"] = response;
 
-  serializeJson(resp_doc, resp_buffer, BUFF_SIZE);
+  serializeAndEncrypt(resp_doc, resp_buffer, aes);
   
   return response;
 }
 
 // Handles remote password write
-int handlePasswordEdit(const char* old_name, const char* name, const char* user, const char* pwd, char* resp_buffer){
+int handlePasswordEdit(const char* old_name, const char* name, const char* user, const char* pwd, char* resp_buffer, CTR<AES128>* aes){
   Serial.println("Handling password edit");
   
   // Get the entry
@@ -605,13 +619,13 @@ int handlePasswordEdit(const char* old_name, const char* name, const char* user,
 
   resp_doc["response"] = 0;
 
-  serializeJson(resp_doc, resp_buffer, BUFF_SIZE);
+  serializeAndEncrypt(resp_doc, resp_buffer, aes);
   
   return 0;
 }
 
 // Handles remote password information request
-int handleWalletRead(const char* name, char* resp_buffer)
+int handleWalletRead(const char* name, char* resp_buffer, CTR<AES128>* aes)
 {
   // Init the AES CTR cipher for encrypting with the session key
   CTR<AES128> aes_ctr_session;
@@ -637,20 +651,12 @@ int handleWalletRead(const char* name, char* resp_buffer)
   for (int i = 0; i < BUFF_SIZE; i++)
     inp_buffer[i] = 0;
 
-  // Serialize to the input buffer
-  serializeJson(resp_doc, inp_buffer, MAX_BUFF_TXT_LEN);
-
-  // Encrypt the contents of the input buffer with AES CTR (only needs the max txt size)
-  aes_ctr_session.encrypt((byte*) inp_buffer, (byte*) inp_buffer, MAX_BUFF_TXT_LEN);
-
-  // Base64 encode the buffer, and write this to the response buffer
-  int base64len = bytesToBase64((byte*) inp_buffer, resp_buffer, MAX_BUFF_TXT_LEN);
-  resp_buffer[base64len] = 0;
+  serializeAndEncrypt(resp_doc, resp_buffer, aes);
 
   return 0;
 }
 
-int handleWalletAdd(const char* name, const char* phrases, char* resp_buffer){
+int handleWalletAdd(const char* name, const char* phrases, char* resp_buffer, CTR<AES128>* aes){
   byte enc_name_bytes[32];
   char decrypted_name[32];
   base64ToBytes(name, enc_name_bytes);
@@ -679,14 +685,15 @@ int handleWalletAdd(const char* name, const char* phrases, char* resp_buffer){
   wallet_manager->save(entry);
   wallet_manager->setWalletCount(wallet_manager->getWalletCount()+1);
   
+  resp_doc.clear();
   resp_doc["response"] = 0;
 
-  serializeJson(resp_doc, resp_buffer, BUFF_SIZE);
+  serializeAndEncrypt(resp_doc, resp_buffer, aes);
 
   return 0;
 }
 
-int handleWalletDel(const char* name, char* resp_buffer){
+int handleWalletDel(const char* name, char* resp_buffer, CTR<AES128>* aes){
   byte enc_name_bytes[32];
   base64ToBytes(name, enc_name_bytes);
   Wallet_Entry* entry = wallet_manager->getEntry(enc_name_bytes);
@@ -697,7 +704,7 @@ int handleWalletDel(const char* name, char* resp_buffer){
 
   resp_doc["response"] = 0;
 
-  serializeJson(resp_doc, resp_buffer, BUFF_SIZE);
+  serializeAndEncrypt(resp_doc, resp_buffer, aes);
 
   return 0;
 }

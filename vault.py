@@ -106,8 +106,28 @@ def sendCommand(json_message):
 
     info(f"Sending command + token")
 
+    msg = json.dumps(json_message)
+
+    print(msg)
+
+    print("NONCE:")
+    for elem in nonces[0]:
+        print(elem, end = ' ')
+    print()
+
+    # Encrypt the json payload with the session key
+    session_key_bytes = get_session_key_bytes()
+    session_ctr_cipher = AES.new(session_key_bytes, AES.MODE_CTR, nonce=nonces[0][0:8], initial_value=nonces[0][8:16])
+
+    ciphertext = base64.b64encode(session_ctr_cipher.encrypt(msg.encode('ascii')))
+
+    print(ciphertext.decode('ascii'))
+    print(len(ciphertext))
+
+    print("MSG len: " + str(len(msg)))
+
     client = connect()
-    client.sendall(bytes(json.dumps(json_message), 'utf-8'))
+    client.sendall(bytes(ciphertext.decode('ascii'), 'utf-8'))
 
     # Get all sent data until none left
     response = b''
@@ -121,7 +141,7 @@ def sendCommand(json_message):
 
     good(f"Received response")
 
-    # print(response)
+    print(response)
 
     client.close()
 
@@ -255,6 +275,8 @@ def readPassword():
     plaintext = session_ctr_cipher.decrypt(base64.b64decode(raw_response)).decode('ascii')
     response = json.loads(plaintext.rstrip('\0'))
 
+    print(response)
+
     # Perform decoding and decryption of password and username
     username = decrypt_aes_ecb(base64.b64decode(response["username"].encode('ascii')), master_key_bytes)
     password = decrypt_aes_ecb(base64.b64decode(response["password"].encode('ascii')), master_key_bytes)
@@ -279,7 +301,10 @@ def addPassword():
     cmd["user"] = base64.b64encode(encrypt_aes_ecb(user, key_bytes)).decode('ascii')
     cmd["pwd"] = base64.b64encode(encrypt_aes_ecb(pwd, key_bytes)).decode('ascii')
 
-    raw_response = sendCommand(cmd)[1]
+    # Get the cmd response, and nonce for decryption
+    response_details = sendCommand(cmd)
+    nonce_iv = response_details[0]
+    raw_response = response_details[1]
 
     if raw_response == -1:
         bad("Connection to vault failed")
@@ -289,7 +314,13 @@ def addPassword():
         bad("Empty response")
         return
 
-    response = json.loads(raw_response)
+    # Set up the aes ctr instance with the key and nonce
+    session_key_bytes = get_session_key_bytes()
+    session_ctr_cipher = AES.new(session_key_bytes, AES.MODE_CTR, nonce=nonce_iv[0:8], initial_value=nonce_iv[8:16])
+    
+    # Decrypt response and load json
+    plaintext = session_ctr_cipher.decrypt(base64.b64decode(raw_response)).decode('ascii')
+    response = json.loads(plaintext.rstrip('\0'))
 
     if response["response"] == 0:
         good("Password added successfully")
@@ -321,7 +352,10 @@ def editPassword():
     if not new_pwd == '':
         cmd["new_pwd"] = base64.b64encode(encrypt_aes_ecb(new_pwd_bytes, key_bytes)).decode('ascii')
 
-    raw_response = sendCommand(cmd)[1]
+    # Get the cmd response, and nonce for decryption
+    response_details = sendCommand(cmd)
+    nonce_iv = response_details[0]
+    raw_response = response_details[1]
 
     if raw_response == -1:
         bad("Connection to vault failed")
@@ -331,7 +365,13 @@ def editPassword():
         bad("Empty response")
         return
 
-    response = json.loads(raw_response)
+    # Set up the aes ctr instance with the key and nonce
+    session_key_bytes = get_session_key_bytes()
+    session_ctr_cipher = AES.new(session_key_bytes, AES.MODE_CTR, nonce=nonce_iv[0:8], initial_value=nonce_iv[8:16])
+    
+    # Decrypt response and load json
+    plaintext = session_ctr_cipher.decrypt(base64.b64decode(raw_response)).decode('ascii')
+    response = json.loads(plaintext.rstrip('\0'))
 
     if response["response"] == 0:
         good("Password edited successfully")
@@ -348,7 +388,10 @@ def deletePassword():
     cmd["type"] = 3
     cmd["name"] = base64.b64encode(encrypt_aes_ecb(name, key_bytes)).decode('ascii')
 
-    raw_response = sendCommand(cmd)[1]
+    # Get the cmd response, and nonce for decryption
+    response_details = sendCommand(cmd)
+    nonce_iv = response_details[0]
+    raw_response = response_details[1]
 
     if raw_response == -1:
         bad("Connection to vault failed")
@@ -358,7 +401,13 @@ def deletePassword():
         bad("Empty response")
         return
 
-    response = json.loads(raw_response)
+    # Set up the aes ctr instance with the key and nonce
+    session_key_bytes = get_session_key_bytes()
+    session_ctr_cipher = AES.new(session_key_bytes, AES.MODE_CTR, nonce=nonce_iv[0:8], initial_value=nonce_iv[8:16])
+    
+    # Decrypt response and load json
+    plaintext = session_ctr_cipher.decrypt(base64.b64decode(raw_response)).decode('ascii')
+    response = json.loads(plaintext.rstrip('\0'))
 
     if response["response"] == 0:
         good("Password removed successfully")
@@ -446,7 +495,12 @@ def addWallet():
     cmd["name"] = base64.b64encode(encrypt_aes_ecb(wlt_name, key_bytes)).decode('ascii')
     cmd["phrases"] = json.dumps(phrases)
 
-    raw_response = sendCommand(cmd)[1]
+    # Get the cmd response, and nonce for decryption
+    response_details = sendCommand(cmd)
+    nonce_iv = response_details[0]
+    raw_response = response_details[1]
+
+    print(raw_response)
 
     if raw_response == -1:
         bad("Connection to vault failed")
@@ -460,8 +514,13 @@ def addWallet():
     if raw_response == b'0':
         bad("Wallet does not exist on the device")
 
-    # Parse the response
-    response = json.loads(raw_response)
+    # Set up the aes ctr instance with the key and nonce
+    session_key_bytes = get_session_key_bytes()
+    session_ctr_cipher = AES.new(session_key_bytes, AES.MODE_CTR, nonce=nonce_iv[0:8], initial_value=nonce_iv[8:16])
+    
+    # Decrypt response and load json
+    plaintext = session_ctr_cipher.decrypt(base64.b64decode(raw_response)).decode('ascii')
+    response = json.loads(plaintext.rstrip('\0'))
 
     if response["response"] == 0:
         good("Wallet added successfully")
@@ -478,7 +537,10 @@ def delWallet():
     cmd["type"] = 6
     cmd["name"] = base64.b64encode(encrypt_aes_ecb(entry_name, key_bytes)).decode('ascii')
 
-    raw_response = sendCommand(cmd)[1]
+    # Get the cmd response, and nonce for decryption
+    response_details = sendCommand(cmd)
+    nonce_iv = response_details[0]
+    raw_response = response_details[1]
 
     if raw_response == -1:
         bad("Connection to vault failed")
@@ -492,8 +554,13 @@ def delWallet():
     if raw_response == b'0':
         bad("Wallet does not exist on the device")
 
-    # Parse the response
-    response = json.loads(raw_response)
+    # Set up the aes ctr instance with the key and nonce
+    session_key_bytes = get_session_key_bytes()
+    session_ctr_cipher = AES.new(session_key_bytes, AES.MODE_CTR, nonce=nonce_iv[0:8], initial_value=nonce_iv[8:16])
+    
+    # Decrypt response and load json
+    plaintext = session_ctr_cipher.decrypt(base64.b64decode(raw_response)).decode('ascii')
+    response = json.loads(plaintext.rstrip('\0'))
 
     if response["response"] == 0:
         good("Wallet deleted successfully")
