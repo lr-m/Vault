@@ -625,13 +625,13 @@ void serializeAndEncrypt(DynamicJsonDocument document, char* output_buffer, CTR<
   aes->setIV(nonce, 16);
 
   // Serialize to the input buffer
-  serializeJson(document, inp_buffer, MAX_BUFF_TXT_LEN);
+  int written_size = serializeJson(document, inp_buffer, MAX_BUFF_TXT_LEN);
 
   // Encrypt the contents of the input buffer with AES CTR (only needs the max txt size)
-  aes->encrypt((byte*) inp_buffer, (byte*) inp_buffer, MAX_BUFF_TXT_LEN);
+  aes->encrypt((byte*) inp_buffer, (byte*) inp_buffer, written_size + (BLOCK_SIZE - written_size%BLOCK_SIZE));
 
   // Base64 encode the buffer, and write this to the response buffer
-  int base64len = bytesToBase64((byte*) inp_buffer, output_buffer, MAX_BUFF_TXT_LEN);
+  int base64len = bytesToBase64((byte*) inp_buffer, output_buffer, written_size + (BLOCK_SIZE - written_size%BLOCK_SIZE));
   resp_buffer[base64len] = 0;
 }
 
