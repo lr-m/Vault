@@ -34,7 +34,9 @@ AES128 aes128; // For aes encryption
 SHA512 sha512;
 #define BLOCK_SIZE 128
 #define HASH_SIZE 64
+#define WIFI_CREDS_START 100
 #define MAX_MASTER_LEN 15
+#define MAX_WIFI_CRED_LEN 24
 
 char* password;
 byte* session_key;
@@ -57,10 +59,10 @@ IRrecv irrecv(RECV_PIN);
 // Instantiate keyboard
 ST7735_PW_Keyboard *keyboard;
 
-boolean perform_setup = false;
+int perform_setup = 3;
 
-const char* ssid = "T435C10";
-const char* wifi_pwd =  "Th15WiFi1554f3";
+char ssid[32];
+char wifi_pwd[32];
 
 WiFiServer wifiServer(2222);
 
@@ -104,11 +106,13 @@ void setup(){
 //  EEPROM.write(0, 0);
 //  EEPROM.commit();
 
+  printEEPROM();
+
   // EEPROM magic number is 43 53 50 82 66
   if (EEPROM.read(0) != byte(45) || EEPROM.read(1) != byte(53) || 
       EEPROM.read(2) != byte(50) || EEPROM.read(3) != byte(82) || 
       EEPROM.read(4) != byte(66)){
-    perform_setup = true;
+    perform_setup = 0;
   }
   
   irrecv.enableIRIn(); // Enable IR reciever
@@ -123,7 +127,7 @@ void setup(){
   tft.setTextColor(ST77XX_GREEN);
   tft.fillScreen(SCHEME_BG);
   
-  if (perform_setup){
+  if (perform_setup == 0){
     keyboard->displayPrompt("Enter new master key:");
   } else {
     keyboard->displayPrompt("Enter master key:");
@@ -152,9 +156,55 @@ void loop(){
     }
 
     if (keyboard->enterPressed() == 1){
-      if (perform_setup){
+      if (perform_setup == 0){
         // Save the entered password to the internal eeprom
-        writePasswordToEEPROM(keyboard->getCurrentInput(), keyboard->getCurrentInputLength());
+        writeMasterPasswordToEEPROM(keyboard->getCurrentInput(), keyboard->getCurrentInputLength());
+
+        // Copy into buffer for encrypting wifi creds
+        for (int i = 0; i < keyboard->getCurrentInputLength(); i++){
+          password[i] = keyboard->getCurrentInput()[i];
+        }
+        password[keyboard->getCurrentInputLength()] = 0;
+
+        // Copy the password bytes and load into the aes128 cipher
+        byte key_bytes[16];
+        int j = 0;
+        int copy_index = 0;
+
+        while(j < 16){
+            // Fill the key with more key material
+            if (password[copy_index] == 0)
+                copy_index = 0;
+
+            key_bytes[j] = byte(password[copy_index]);
+            j++;
+            copy_index++;
+        }
+
+        // Set the key to the loaded key bytes
+        aes128.setKey(key_bytes, aes128.keySize());
+
+        perform_setup = 1;
+        keyboard->reset();
+        keyboard->displayPrompt("Enter WiFi SSID:");
+        keyboard->display();
+        keyboard->setLengthLimit(MAX_WIFI_CRED_LEN);
+      } else if (perform_setup == 1){
+        // Save the entered wifi ssid to internal eeprom (encrypted with master key)
+        writeWiFiSSIDToEEPROM(keyboard->getCurrentInput(), keyboard->getCurrentInputLength());
+        perform_setup = 2;
+        keyboard->reset();
+        keyboard->displayPrompt("Enter password:");
+        keyboard->display();
+        Serial.println(perform_setup);
+      } else if (perform_setup == 2){
+        // Save the entered wifi password to internal eeprom (encrypted with master key)
+        writeWiFiPasswordToEEPROM(keyboard->getCurrentInput(), keyboard->getCurrentInputLength());
+        perform_setup = 3;
+        keyboard->reset();
+        
+        // Once all creds written, write the magic to indicate set up done
+        writeMagicToEEPROM();
         ESP.restart();
       } else {
         // Compare hash of entered passcode against the stored hash
@@ -268,10 +318,37 @@ void loop(){
       char interact_return = menu->interact(&irrecv.decodedIRData.decodedRawData, password_manager, wallet_manager);
       if (interact_return == 2){
           remote_mode = true;
+
+          // Load ssid from internal eeprom
+          byte encrypted[32];
+          for (int i = 0; i < 32; i++)
+            encrypted[i] = EEPROM.read(WIFI_CREDS_START + i);
+
+          for (int i = 0; i < 32; i += 16)
+            aes128.decryptBlock((byte*) ssid + i, encrypted + i);
+
+          // Load password from internal eeprom
+          for (int i = 0; i < 32; i++)
+            encrypted[i] = EEPROM.read(WIFI_CREDS_START + 32 + i);
+
+          for (int i = 0; i < 32; i += 16)
+            aes128.decryptBlock((byte*) wifi_pwd + i, encrypted + i);
+
           tft.setTextColor(ST77XX_WHITE);
           tft.fillScreen(SCHEME_BG);
           tft.setCursor(0, 5);
-          tft.print("Connecting");
+
+          tft.println("SSID :");
+          tft.setTextColor(ST77XX_GREEN);
+          tft.println(ssid);
+          tft.setTextColor(ST77XX_WHITE);
+          
+          tft.println("\nPwd :");
+          tft.setTextColor(ST77XX_GREEN);
+          tft.println(wifi_pwd);
+          tft.setTextColor(ST77XX_WHITE);
+          
+          tft.print("\nConnecting");
 
           // wifi setup
           WiFi.begin(ssid, wifi_pwd);
@@ -789,8 +866,7 @@ void loadHashFromEEPROM(uint8_t* hash){
     hash[i-5] = (char) EEPROM.read(i);
 }
 
-// Writes new master password to EEPROM
-void writePasswordToEEPROM(char* password, int entry_length){
+void writeMagicToEEPROM(){
   // Write magic phrase
   EEPROM.write(0, 45);
   EEPROM.write(1, 53);
@@ -798,6 +874,57 @@ void writePasswordToEEPROM(char* password, int entry_length){
   EEPROM.write(3, 82);
   EEPROM.write(4, 66);
 
+  EEPROM.commit();
+}
+
+void writeWiFiSSIDToEEPROM(char* ssid, int length){
+  byte encrypted[32];
+  byte to_encrypt[32];
+
+  // Copy into buffer and pad with random stuff
+  int i = 0;
+  for (i = 0; i < length+1; i++)
+    to_encrypt[i] = ssid[i];
+
+  for (; i < 32; i++)
+    to_encrypt[i] = random(0, 255);
+
+  // Perform encryption
+  for (int i = 0; i < 32; i += 16)
+    aes128.encryptBlock(encrypted + i, (byte*) to_encrypt + i);
+
+  // Write to EEPROM
+  for (int j = 0; j < 32; j++)
+    EEPROM.write(WIFI_CREDS_START + j, encrypted[j]);
+
+  EEPROM.commit();
+}
+
+void writeWiFiPasswordToEEPROM(char* password, int length){
+  byte encrypted[32];
+  byte to_encrypt[32];
+
+  // Copy into buffer and pad with random stuff
+  int i = 0;
+  for (i = 0; i < length+1; i++)
+    to_encrypt[i] = password[i];
+
+  for (; i < 32; i++)
+    to_encrypt[i] = random(0, 255);
+
+  // Perform encryption
+  for (int i = 0; i < 32; i += 16)
+    aes128.encryptBlock(encrypted + i, (byte*) to_encrypt + i);
+
+  // Write to EEPROM
+  for (int j = 0; j < 32; j++)
+    EEPROM.write(WIFI_CREDS_START + 32 + j, encrypted[j]);
+
+  EEPROM.commit();
+}
+
+// Writes new master password to EEPROM
+void writeMasterPasswordToEEPROM(char* password, int entry_length){
   uint8_t hash[HASH_SIZE];
   sha512Gen(&sha512, password, entry_length, hash);
 
