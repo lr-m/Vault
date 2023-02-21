@@ -124,7 +124,7 @@ void setup(){
   
   tft.initR(INITR_BLACKTAB); // Init ST7735S chip
   tft.fillScreen (SCHEME_BG);
-  tft.setTextColor(ST77XX_GREEN);
+  tft.setTextColor(SCHEME_MAIN);
   tft.fillScreen(SCHEME_BG);
   
   if (perform_setup == 0){
@@ -210,7 +210,7 @@ void loop(){
         // Compare hash of entered passcode against the stored hash
         if (entryCheck(keyboard->getCurrentInput(), keyboard->getCurrentInputLength())){
           // Indicate successful check
-          tft.setTextColor(ST77XX_GREEN);
+          tft.setTextColor(SCHEME_MAIN);
           tft.print("\n\nEntry Granted");
           master_key_succeed = true;
           delay(500);
@@ -338,16 +338,16 @@ void loop(){
           tft.fillScreen(SCHEME_BG);
           tft.setCursor(0, 5);
 
-          tft.println("SSID :");
-          tft.setTextColor(ST77XX_GREEN);
+          tft.setTextColor(SCHEME_MAIN);
+          tft.print("SSID:");
+          tft.setTextColor(ST77XX_WHITE);
           tft.println(ssid);
+
+          tft.setTextColor(SCHEME_MAIN);
+          tft.print("\nPwd:");
           tft.setTextColor(ST77XX_WHITE);
-          
-          tft.println("\nPwd :");
-          tft.setTextColor(ST77XX_GREEN);
           tft.println(wifi_pwd);
-          tft.setTextColor(ST77XX_WHITE);
-          
+
           tft.print("\nConnecting");
 
           // wifi setup
@@ -377,6 +377,17 @@ void loop(){
 }
 
 int checkAuth(const char* token){
+  // Check token is of correct length
+  for (int i = 0; i < 64; i++){
+    if (token[i] < 0x30 || token[i] > 0x5A){
+      return -1;
+    }
+  }
+
+  // // Check null terminator at last byte
+  // if (token[65] != 0)
+  //   return -1;
+
   // Decrypt the token and compare against nonce
   byte decrypted_token_bytes[32];
   byte encrypted_token_bytes[32];
@@ -453,27 +464,17 @@ void handleAuth(WiFiClient client, char* incoming){
 void handleCommand(WiFiClient client, char* incoming, int len){
   expecting_cmd = false;
 
-  Serial.println(len);
-
-  Serial.println(incoming);
-
   // Init the AES CTR cipher for encrypting with the session key
   CTR<AES128> aes_ctr_session;
   aes_ctr_session.setKey(session_key, aes_ctr_session.keySize());
   aes_ctr_session.setIV(nonce, 16);
   aes_ctr_session.setCounterSize(8);
 
+  // Convert the incoming base64 token to bytes
   base64ToBytes(incoming, (byte*) resp_buffer);
 
+  // Decrypt the incoming bytes
   aes_ctr_session.decrypt((byte*) inp_buffer, (byte*) resp_buffer, len);
-
-  for (int i = 0; i < 32; i++){
-    Serial.print(nonce[i]);
-    Serial.print(' ');
-  }
-  Serial.println();
-
-  Serial.println(inp_buffer);
 
   // Create and deserialise incoming json, check for errors
   DeserializationError error = deserializeJson(inp_doc, inp_buffer);
@@ -495,8 +496,6 @@ void handleCommand(WiFiClient client, char* incoming, int len){
   }
 
   const char* token = inp_doc["token"];
-
-  Serial.println(token);
 
   // Check the incoming password
   if (checkAuth(token) != 0)
@@ -792,8 +791,8 @@ int bytesToBase64(byte* bytes, char* base64String, int input_len){
 }
 
 // Converts a base64 string, to an array of bytes
-void base64ToBytes(const char* base64String, byte* bytes){
-  decode_base64((unsigned char*) base64String, bytes);
+int base64ToBytes(const char* base64String, byte* bytes){
+  return decode_base64((unsigned char*) base64String, bytes);
 }
 
 // Converts an array of bytes to a hexstring
@@ -810,23 +809,23 @@ void hexStringToBytes(const char* hexString, byte* bytes, int output_len){
 
 // Displays the remote mode info on the display
 void displayRemoteInfo(){
-  tft.println("\nRemote Info:\n");
-  tft.println("IP Address:");
-  tft.setTextColor(ST77XX_GREEN);
-  tft.println(WiFi.localIP());
+  tft.setTextColor(SCHEME_MAIN);
+  tft.print("\nIP:");
   tft.setTextColor(ST77XX_WHITE);
-
+  tft.println(WiFi.localIP());
+  
   // Generate random session key
-  tft.println("\nSession Key:");
-  tft.setTextColor(ST77XX_GREEN);
+  tft.setTextColor(SCHEME_MAIN);
+  tft.println("\nSession Key:\n");
+  tft.setTextSize(2);
+  tft.setTextColor(ST77XX_WHITE);
 
   session_key = (byte*) malloc(sizeof(byte)*16);
   generateSessionKey(session_key, 16);
-  
   for (int i = 0; i < 16; i++)
     tft.print((char) session_key[i]);
 
-  tft.setTextColor(ST77XX_WHITE);
+  tft.setTextSize(1);
 }
 
 // Generates a random key for the session

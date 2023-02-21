@@ -67,7 +67,7 @@ def verifyCreds(client):
 
     info(f"Sending auth request")
     if verbose:
-        print(json.dumps(cmd))
+        print(json.dumps(cmd, indent=4))
 
     client.sendall(bytes(json.dumps(cmd), 'utf-8'))
 
@@ -84,12 +84,13 @@ def verifyCreds(client):
 
         json_response = json.loads(response)
     except Exception as e:
-        bad(str(e))
+        bad("Failed to parse JSON response - check your credentials, and ensure a strong WiFi signal")
+        return
 
     good(f"Received challenge")
 
     if verbose:
-        print(json.dumps(json_response))
+        print(json.dumps(json_response, indent=4))
 
     key_bytes = get_master_key_bytes()
     session_key_bytes = get_session_key_bytes()
@@ -108,6 +109,10 @@ def sendCommand(json_message):
 
     nonces = verifyCreds(client)
 
+    if nonces is None:
+        print("cock")
+        return {}
+
     # Add nonce encrypted with master key to response
     json_message["token"] = nonces[1].hex().upper()
 
@@ -117,7 +122,7 @@ def sendCommand(json_message):
 
     if verbose:
         info("Original message being sent:")
-        print(msg)
+        print(json.dumps(json_message, indent=4))
     
     # Encrypt the json payload with the session key
     session_key_bytes = get_session_key_bytes()
@@ -154,12 +159,12 @@ def sendCommand(json_message):
 
     # Check for empty response
     if response == b'':
-        bad("Command failed")
+        bad("Command failed, check credentials and WiFi connection")
         return {}
 
     if verbose:
         info("Encrypted response:")
-        print(response)
+        print(response.decode('ascii'))
 
     # Set up the aes ctr instance with the key and nonce
     session_key_bytes = get_session_key_bytes()
@@ -171,7 +176,7 @@ def sendCommand(json_message):
 
     if verbose:
         info("Decrypted response:")
-        print(json.dumps(json_response))
+        print(json.dumps(json_response, indent=4))
 
     return json_response # Return the decoded response
 
@@ -198,6 +203,18 @@ def handleCommand(command):
 
 # Handles commands from the password functionality
 def handlePwdCommand(command):
+    if auth['session'] == '':
+        bad("Missing session key")
+        return
+
+    if auth['master'] == '':
+        bad("Missing master key")
+        return
+
+    if ip == '':
+        bad("Missing ip address")
+        return
+
     # Make sure the command is in the command dict
     if command not in pwd_cmds.keys():
         bad("Invalid command")
@@ -537,7 +554,9 @@ def endSession():
 
 # Prints the session and master keys
 def printStatus():
-    print(auth)
+    print(f"    \033[;1;3m{'Master '}\033[0m: \t{auth['master']}")
+    print(f"    \033[;1;3m{'Session'}\033[0m:\t{auth['session']}")
+    print(f"    \033[;1;3m{'Address'}\033[0m:\t{ip}")
 
 # Prints the help menu
 def printHelp():
@@ -566,7 +585,7 @@ def main():
 
     parser.add_argument("-m", "--master", type=str, help='Master password for vault')
     parser.add_argument("-s", "--session", type=str, help='Session key on vault screen (on screen)')
-    parser.add_argument("-ip", "--ipaddr", type=str, help='IP address of the vault (on screen)', default='192.168.0.58')
+    parser.add_argument("-ip", "--ipaddr", type=str, help='IP address of the vault (on screen)', default='')
     parser.add_argument("-v", "--verbose", action='store_true', help='Enable verbose output')
 
     args = parser.parse_args()
