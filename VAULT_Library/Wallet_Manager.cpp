@@ -401,15 +401,15 @@ void Wallet_Manager::save(Wallet_Entry* entry){
                 if (written_count == 0){
                     // Write the encrypted name to the block
                     byte encrypted[32];
-                    this->encrypt(entry->getName(), encrypted);
+                    this -> encrypt(entry->getName(), encrypted);
                     for (int k = 0; k < WALLET_BLOCK_SIZE; k++){
-                        this->eeprom_manager->writeExternalEEPROM(write_addr, encrypted[k]);
+                        this -> eeprom_manager -> writeExternalEEPROM(write_addr, encrypted[k]);
                         write_addr++;
                     }
                 } else {
                     // Write the encrypted entry to the block
                     for (int k = 0; k < WALLET_BLOCK_SIZE; k++){
-                        this->eeprom_manager->writeExternalEEPROM(write_addr, entry->getEncryptedPhrases()[written_count-1][k]);
+                        this->eeprom_manager->writeExternalEEPROM(write_addr, entry -> getEncryptedPhrases()[written_count-1][k]);
                         write_addr++;
                     }
                 }
@@ -537,18 +537,20 @@ void Wallet_Entry::nullifyPhrases(){
 
 void Wallet_Entry::setName(char* buffer){
     int i = 0;
-    while(buffer[i] != '\0'){
+    do {
         this->name[i] = buffer[i];
         i++;
-    }
+    } while(buffer[i] != 0);
+    this->name[i] = 0;
 }
 
 void Wallet_Entry::setName(const char* buffer){
     int i = 0;
-    while(buffer[i] != '\0'){
+    do {
         this->name[i] = buffer[i];
         i++;
-    }
+    } while(buffer[i] != 0);
+    this->name[i] = 0;
 }
 
 void Wallet_Entry::setEncryptedPhrase(int index, byte* phrase){

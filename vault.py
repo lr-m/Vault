@@ -76,7 +76,6 @@ def verifyCreds(client):
         response = b''
         while True:
             data = client.recv(2048)
-
             if not data:
                 break
 
@@ -84,8 +83,9 @@ def verifyCreds(client):
 
         json_response = json.loads(response)
     except Exception as e:
-        bad("Failed to parse JSON response - check your credentials, and ensure a strong WiFi signal")
-        return
+        # Need to add option to retry when this happens (or just fix it)
+        bad("Failed - retrying")
+        return -1
 
     good(f"Received challenge")
 
@@ -106,11 +106,13 @@ def verifyCreds(client):
 # Performs the authentication process, and send the passed command to the vault
 def sendCommand(json_message):
     client = connect()
-
     nonces = verifyCreds(client)
 
+    while nonces == -1:
+        client = connect()
+        nonces = verifyCreds(client)
+
     if nonces is None:
-        print("cock")
         return {}
 
     # Add nonce encrypted with master key to response
@@ -370,7 +372,7 @@ def editPassword():
     cmd["name"] = base64.b64encode(encrypt_aes_ecb(old_name_bytes, key_bytes)).decode('ascii')
     if not new_name == '':
         cmd["new_name"] = base64.b64encode(encrypt_aes_ecb(new_name_bytes, key_bytes)).decode('ascii')
-    
+
     if not new_user == '':
         cmd["new_user"] = base64.b64encode(encrypt_aes_ecb(new_user_bytes, key_bytes)).decode('ascii')
 
@@ -399,7 +401,7 @@ def deletePassword():
     cmd = {}
     cmd["type"] = 3
     cmd["name"] = base64.b64encode(encrypt_aes_ecb(name, key_bytes)).decode('ascii')
-
+    
     # Get the cmd response
     response = sendCommand(cmd)
 

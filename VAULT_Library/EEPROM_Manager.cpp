@@ -92,7 +92,7 @@ void EEPROM_Manager::writeExternalEEPROM(int address, byte val)
   Wire.endTransmission();
  
   // Add 5ms delay for EEPROM
-  delay(2);
+  delay(5);
 }
  
 // Function to read from EEPROM

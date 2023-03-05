@@ -196,7 +196,6 @@ void loop(){
         keyboard->reset();
         keyboard->displayPrompt("Enter password:");
         keyboard->display();
-        Serial.println(perform_setup);
       } else if (perform_setup == 2){
         // Save the entered wifi password to internal eeprom (encrypted with master key)
         writeWiFiPasswordToEEPROM(keyboard->getCurrentInput(), keyboard->getCurrentInputLength());
@@ -580,8 +579,12 @@ void handleCommand(WiFiClient client, char* incoming, int len){
 // Handles remote password removal
 int handlePasswordRemove(const char* enc_name, char* resp_buffer, CTR<AES128>* aes){
   byte enc_name_bytes[32];
-  base64ToBytes(enc_name, enc_name_bytes);
-  int response = password_manager->deleteEntry(enc_name_bytes);
+  int response = 0;
+  if (base64ToBytesLenCheck(enc_name, enc_name_bytes, 32) == -1){
+    response = -1;
+  } else {
+    response = password_manager->deleteEntry(enc_name_bytes);
+  }
 
   resp_doc["response"] = response;
 
@@ -595,7 +598,9 @@ int handlePasswordRead(const char* enc_name, char* resp_buffer, CTR<AES128>* aes
 {
   // Get entry details
   byte enc_name_bytes[32];
-  base64ToBytes(enc_name, enc_name_bytes);
+  if (base64ToBytesLenCheck(enc_name, enc_name_bytes, 32) == -1)
+    return -1;
+
   Password_Entry* entry = password_manager->getEntry(enc_name_bytes);
 
   if (entry == NULL)
@@ -640,11 +645,14 @@ int handlePasswordWrite(const char* name, const char* user, const char* pwd, cha
   byte encrypted_user[32];
   byte encrypted_pwd[32];
 
-  base64ToBytes(name, encrypted_name);
-  base64ToBytes(user, encrypted_user);
-  base64ToBytes(pwd, encrypted_pwd);
-  
-  int response = password_manager->addEntry(encrypted_name, encrypted_user, encrypted_pwd);
+  int response = 0;
+  if ((base64ToBytesLenCheck(name, encrypted_name, 32) == -1) || 
+      (base64ToBytesLenCheck(user, encrypted_user, 32) == -1) ||
+      (base64ToBytesLenCheck(pwd, encrypted_pwd, 32) == -1)) {
+    response = -1;
+  } else {
+    response = password_manager->addEntry(encrypted_name, encrypted_user, encrypted_pwd);
+  }
 
   resp_doc["response"] = response;
 
@@ -659,18 +667,21 @@ int handlePasswordEdit(const char* old_name, const char* name, const char* user,
   
   // Get the entry
   byte enc_name_bytes[32];
-  base64ToBytes(old_name, enc_name_bytes);
-  Password_Entry* entry = password_manager->getEntry(enc_name_bytes);
-  if (entry == NULL){
+  if (base64ToBytesLenCheck(old_name, enc_name_bytes, 32) == -1)
     return -1;
-  }
+
+  Password_Entry* entry = password_manager->getEntry(enc_name_bytes);
+  if (entry == NULL)
+    return -1;
 
   // If name provided, update the name
   if (name != NULL){
     char decrypted_name[32];
     byte encrypted_name_bytes[32];
 
-    base64ToBytes(name, encrypted_name_bytes);
+    if (base64ToBytesLenCheck(name, encrypted_name_bytes, 32) == -1)
+      return -1;
+
     password_manager->decrypt(encrypted_name_bytes, decrypted_name);
     memcpy(entry->getName(), decrypted_name, 32);
   }
@@ -678,14 +689,18 @@ int handlePasswordEdit(const char* old_name, const char* name, const char* user,
   // If username provided, update the username
   if (user != NULL){
     byte encrypted_user[32];
-    base64ToBytes(user, encrypted_user);
+    if (base64ToBytesLenCheck(user, encrypted_user, 32) == -1)
+      return -1;
+
     memcpy(entry->getEncryptedEmail(), encrypted_user, 32);
   }
 
   // If password provided, update the password
   if (password != NULL){
     byte encrypted_pwd[32];
-    base64ToBytes(pwd, encrypted_pwd);
+    if (base64ToBytesLenCheck(pwd, encrypted_pwd, 32) == -1)
+      return -1;
+
     memcpy(entry->getEncryptedPassword(), encrypted_pwd, 32);
   }
 
@@ -710,13 +725,14 @@ int handleWalletRead(const char* name, char* resp_buffer, CTR<AES128>* aes)
   aes_ctr_session.setCounterSize(8);
 
   byte enc_name_bytes[32];
-  base64ToBytes(name, enc_name_bytes);
+  if (base64ToBytesLenCheck(name, enc_name_bytes, 32) == -1)
+    return -1;
+
   Wallet_Entry* entry = wallet_manager->getEntry(enc_name_bytes);
   if (entry == NULL)
     return -1;
 
   JsonArray arr = resp_doc.to<JsonArray>();
-  
   for (int i = 0; i < entry->phrase_count; i++){
     char to_hex [50];
     bytesToBase64(entry->getEncryptedPhrases()[i], to_hex, 32);
@@ -735,7 +751,12 @@ int handleWalletRead(const char* name, char* resp_buffer, CTR<AES128>* aes)
 int handleWalletAdd(const char* name, const char* phrases, char* resp_buffer, CTR<AES128>* aes){
   byte enc_name_bytes[32];
   char decrypted_name[32];
-  base64ToBytes(name, enc_name_bytes);
+  if (base64ToBytesLenCheck(name, enc_name_bytes, 32) == -1){
+    resp_doc.clear();
+    resp_doc["response"] = -1;
+    return -1;
+  }
+
   wallet_manager->decrypt(enc_name_bytes, decrypted_name);
 
   // Borrow the resp_doc for parsing the array of phrases
@@ -752,10 +773,20 @@ int handleWalletAdd(const char* name, const char* phrases, char* resp_buffer, CT
 
   // extract the values
   JsonArray array = resp_doc.as<JsonArray>();
+  int count = 0;
   for(JsonVariant v : array) {
     byte encrypted_phrase[32];
-    base64ToBytes(v.as<char*>(), encrypted_phrase);
+    if (base64ToBytesLenCheck(v.as<char*>(), encrypted_phrase, 32) == -1){
+      resp_doc.clear();
+      resp_doc["response"] = -1;
+      return -1;
+    }
     entry->addPhrase(encrypted_phrase);
+    count++;
+
+    // Make sure no more than 24 phrases
+    if (count == MAX_PHRASE_COUNT)
+      break;
   }
 
   wallet_manager->save(entry);
@@ -771,7 +802,9 @@ int handleWalletAdd(const char* name, const char* phrases, char* resp_buffer, CT
 
 int handleWalletDel(const char* name, char* resp_buffer, CTR<AES128>* aes){
   byte enc_name_bytes[32];
-  base64ToBytes(name, enc_name_bytes);
+  if (base64ToBytesLenCheck(name, enc_name_bytes, 32) == -1)
+    return -1;
+
   Wallet_Entry* entry = wallet_manager->getEntry(enc_name_bytes);
   if (entry == NULL)
     return -1;
@@ -790,9 +823,21 @@ int bytesToBase64(byte* bytes, char* base64String, int input_len){
   return encode_base64(bytes, input_len, (unsigned char*) base64String);
 }
 
-// Converts a base64 string, to an array of bytes
+// Converts a base64 string, to an array of bytes (must be null terminated string)
 int base64ToBytes(const char* base64String, byte* bytes){
   return decode_base64((unsigned char*) base64String, bytes);
+}
+
+// Converts a base64 string, to an array of bytes (must be null terminated string)
+int base64ToBytesLenCheck(const char* base64String, byte* bytes, int buffersize){
+  // Make sure there is a null terminator before the max buffer size
+  for (int i = 0; i < 1 + (((4 * buffersize / 3) + 3) & ~3); i++){
+    if (base64String[i] == 0){
+      return decode_base64((unsigned char*) base64String, bytes);
+    }
+  }
+
+  return -1;
 }
 
 // Converts an array of bytes to a hexstring
@@ -822,8 +867,11 @@ void displayRemoteInfo(){
 
   session_key = (byte*) malloc(sizeof(byte)*16);
   generateSessionKey(session_key, 16);
-  for (int i = 0; i < 16; i++)
+  for (int i = 0; i < 16; i++){
     tft.print((char) session_key[i]);
+    Serial.print((char) session_key[i]);
+  }
+  Serial.println();
 
   tft.setTextSize(1);
 }
