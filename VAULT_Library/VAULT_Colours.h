@@ -25,7 +25,7 @@
 // #define SCHEME_TEXT_DARK 0x9DD3
 
 #define SCHEME_BG 0x0000
-#define SCHEME_MAIN 0xB4A5 // 0xD800 // (Red) //0x2CB2 (Blue)
+#define SCHEME_MAIN 0xCD63 // 0xD800 // (Red) //0x2CB2 (Blue)
 #define SCHEME_SECONDARY 0xF6CD
 #define SCHEME_TEXT_LIGHT 0xFFFF
 #define SCHEME_TEXT_DARK 0x0000
