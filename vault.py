@@ -1,17 +1,13 @@
 import socket
 import time
-from termcolor import colored
 from pyfiglet import Figlet
 from random import randint
 import argparse
-import hashlib
 from Crypto.Cipher import AES
 from enum import IntEnum
 import json
 import binascii
 import base64
-from Crypto.Util.Padding import pad, unpad
-import Crypto.Util.Counter
 
 BLOCK_SIZE = 16
 
@@ -542,7 +538,7 @@ def handleSet(input):
         bad("Invalid command")
         return
 
-    if input.split(' ')[0] not in auth.keys():
+    if input.split(' ')[0] not in auth.keys:
         bad("Invalid command")
         return
 
@@ -564,19 +560,28 @@ def printStatus():
 def printHelp():
     info("Available commands:")
     print(f"\
-    \033[33;1;3m{'pwd read'}\033[0m \t Reads stored password with name\n\
-    \033[33;1;3m{'pwd add'}\033[0m \t Adds password entry to device\n\
-    \033[33;1;3m{'pwd del'}\033[0m \t Delete password entry from device\n\
-    \033[33;1;3m{'pwd edit'}\033[0m \t Edit password entry")
+    \033[33;1;3m{'pwd read'}\033[0m \t\t Reads stored password with name\n\
+    \033[33;1;3m{'pwd add'}\033[0m \t\t Adds password entry to device\n\
+    \033[33;1;3m{'pwd del'}\033[0m \t\t Delete password entry from device\n\
+    \033[33;1;3m{'pwd edit'}\033[0m \t\t Edit password entry")
 
     print(f"\n\
-    \033[33;1;3m{'wlt read'}\033[0m \t Reads stored wallet with name\n\
-    \033[33;1;3m{'wlt add'}\033[0m \t Adds wallet entry to device\n\
-    \033[33;1;3m{'wlt del'}\033[0m \t Deletes the stored wallet with name")
+    \033[33;1;3m{'wlt read'}\033[0m \t\t Reads stored wallet with name\n\
+    \033[33;1;3m{'wlt add'}\033[0m \t\t Adds wallet entry to device\n\
+    \033[33;1;3m{'wlt del'}\033[0m \t\t Deletes the stored wallet with name")
+
+    print(f"\n\
+    \033[33;1;3m{'set session *key*'}\033[0m \t Sets the client session key to the passed value\n\
+    \033[33;1;3m{'set master *pwd*'}\033[0m \t Sets the client master password to passed value")
+
+    print(f"\n\
+    \033[33;1;3m{'info/status'}\033[0m \t View the current session key, master password, and IP address\n\
+    \033[33;1;3m{'exit/quit'}\033[0m \t\t Quits the program\n\
+    \033[33;1;3m{'help'}\033[0m \t\t Display this help menu")
 
 def main():
     f = Figlet(font='slant')
-    print(colored(f.renderText('VAULT'), 'yellow'), end='')
+    print(f"\033[{randint(31, 37)}m{f.renderText('VAULT')}\033[0m", end='')
 
     printHelp()
 

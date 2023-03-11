@@ -387,7 +387,7 @@ void Wallet_Manager::save(Wallet_Entry* entry){
     int written_count = 0;
     for (int i = 0; i < WALLET_BITMASK_SIZE; i++){
         // Get the byte that stores the address
-        byte mask_byte = this->eeprom_manager->readExternalEEPROM(WALLET_BLOCK_BITMASK_START + i);
+        byte mask_byte = this -> eeprom_manager -> readExternalEEPROM(WALLET_BLOCK_BITMASK_START + i);
         for (int j = 0; j < 8; j++){
             // Check each bit to see if it is free
             if (bitRead(mask_byte, j) == 0){
@@ -401,7 +401,7 @@ void Wallet_Manager::save(Wallet_Entry* entry){
                 if (written_count == 0){
                     // Write the encrypted name to the block
                     byte encrypted[32];
-                    this -> encrypt(entry->getName(), encrypted);
+                    this -> encrypt(entry -> getName(), encrypted);
                     for (int k = 0; k < WALLET_BLOCK_SIZE; k++){
                         this -> eeprom_manager -> writeExternalEEPROM(write_addr, encrypted[k]);
                         write_addr++;
@@ -409,7 +409,7 @@ void Wallet_Manager::save(Wallet_Entry* entry){
                 } else {
                     // Write the encrypted entry to the block
                     for (int k = 0; k < WALLET_BLOCK_SIZE; k++){
-                        this->eeprom_manager->writeExternalEEPROM(write_addr, entry -> getEncryptedPhrases()[written_count-1][k]);
+                        this -> eeprom_manager -> writeExternalEEPROM(write_addr, entry -> getEncryptedPhrases()[written_count - 1][k]);
                         write_addr++;
                     }
                 }
